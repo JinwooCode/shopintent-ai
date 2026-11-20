@@ -1,0 +1,39 @@
+# ShopIntent AI — central configuration.
+# Thresholds and rules are fixed in advance (approved by lecturer) and validated on validation data only.
+
+seed: 42
+
+paths:
+  raw_data: data/raw/online_shoppers_intention.csv
+  analyst_dir: artifacts/analyst
+  scientist_dir: artifacts/scientist
+  log_dir: logs
+
+target: Revenue
+
+split:
+  test_size: 0.15
+  val_size: 0.15
+  stratify: true
+
+models:
+  main:
+    name: without_pagevalues   # main model shown in the app
+    drop_features: [PageValues]
+  comparison:
+    name: with_pagevalues      # comparison only, in evaluation_report.md
+    drop_features: []
+
+# Purchase probability segments
+thresholds:
+  unlikely_below: 0.20   # p < 0.20  -> unlikely
+  buyer_from: 0.50       # p >= 0.50 -> buyer; 0.20 <= p < 0.50 -> hesitant
+
+# Intervention rules (only hesitant visitors get an intervention)
+interventions:
+  buyer: none
+  unlikely: none
+  hesitant:
+    Returning_Visitor: coupon
+    New_Visitor: chat
+    Other: none

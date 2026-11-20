@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual environment
+.venv/
+venv/
+
+# Secrets — never commit API keys
+.env
+.streamlit/secrets.toml
+
+# Logs
+logs/*.log
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

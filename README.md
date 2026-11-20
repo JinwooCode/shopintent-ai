@@ -48,3 +48,11 @@ py -3.12 -m venv .venv
 pip install -r requirements.txt
 copy .env.example .env          # then add your LLM API key
 ```
+
+## Run
+
+```bash
+python -m src.run_data_pipeline     # raw CSV -> clean_data.csv + dataset_contract.json
+python -m src.run_model_pipeline    # -> features.csv, model.pkl, evaluation_report.md
+streamlit run app/streamlit_app.py  # visit simulation at http://localhost:8501
+```

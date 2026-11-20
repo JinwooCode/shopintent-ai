@@ -61,6 +61,14 @@ FACTORS = {
     "Weekend visit": ["Weekend"],
 }
 
+# Metrics on the buyer / non-buyer comparison strip: column -> (label, formatter)
+COMPARE = {
+    "ProductRelated": ("Product pages", lambda v: f"{v:.0f}"),
+    "ProductRelated_Duration": ("Time on product pages", lambda v: f"{v / 60:.1f}m"),
+    "ExitRates": ("Exit rate · lower is better", lambda v: f"{v:.1%}"),
+    "BounceRates": ("Bounce rate · lower is better", lambda v: f"{v:.1%}"),
+}
+
 st.set_page_config(page_title="ShopIntent AI · Visit Simulation", page_icon="🛒", layout="wide")
 
 
@@ -139,6 +147,32 @@ header[data-testid="stHeader"] {background: transparent;}
 .rule b {color: #fff;}
 .note {font-size: .78rem; color: #9CA3AF; margin-top: .9rem;}
 div[data-testid="stExpander"] {background: #fff; border-radius: 14px; border: 1px solid #E6E8F0;}
+.cmp-title {font-size: .8rem; font-weight: 700; color: #374151; margin: .2rem 0 .3rem;}
+.cmp {display: grid; grid-template-columns: 1.2fr 2fr 60px; gap: .9rem; align-items: center; padding: .5rem 0;}
+.cmp .name {font-size: .86rem; font-weight: 600; color: #1F2937;}
+.scale {position: relative; height: 8px; background: #F1F2F7; border-radius: 4px;}
+.mk {position: absolute; top: -5px; width: 4px; height: 18px; border-radius: 2px; transform: translateX(-50%);}
+.dot {position: absolute; top: 50%; width: 16px; height: 16px; border-radius: 50%; background: #5B4CF0;
+      transform: translate(-50%, -50%); border: 3px solid #fff; box-shadow: 0 0 0 1px #5B4CF0, 0 2px 6px rgba(91,76,240,.5);
+      animation: fade .7s ease-out both;}
+@keyframes fade {from {opacity: 0;}}
+.cmp .val {font-weight: 750; font-size: .92rem; text-align: right; color: #5B4CF0;}
+.cmp-legend {display: flex; gap: 1.2rem; font-size: .75rem; color: #6B7280; margin-top: .5rem; flex-wrap: wrap;}
+.cmp-legend span {display: inline-flex; align-items: center; gap: .4rem;}
+.cmp-legend i {display: inline-block; width: 10px; height: 10px; border-radius: 50%;}
+.cmp-legend u {display: inline-block; width: 4px; height: 12px; border-radius: 2px; text-decoration: none;}
+.wi {display: flex; align-items: center; justify-content: space-around; gap: .6rem; text-align: center;}
+.wi span {display: block; font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #9CA3AF;}
+.wi b {display: block; font-size: 2.6rem; font-weight: 800; letter-spacing: -.04em; line-height: 1.1;}
+.wi .arrow {font-size: 1.6rem; color: #CBD0DC;}
+.wi-delta {text-align: center; font-weight: 750; font-size: 1rem; margin: .7rem 0 .2rem;}
+.wi-action {display: flex; align-items: center; gap: .8rem; background: #F8F9FC; border-radius: 12px;
+            padding: .8rem 1rem; margin-top: 1rem;}
+.wi-action .ic {font-size: 1.7rem;}
+.wi-action b {display: block; font-size: 1rem;}
+.wi-action small {color: #6B7280;}
+.flip {display: inline-block; background: #5B4CF0; color: #fff; font-size: .7rem; font-weight: 700;
+       padding: .15rem .5rem; border-radius: 999px; margin-left: .4rem; vertical-align: middle;}
 @media (max-width: 640px) {
 .kpis {grid-template-columns: 1fr 1fr;}
 .hero {padding: 1.5rem;} .hero h1 {font-size: 1.9rem;}
@@ -164,8 +198,13 @@ def load_data(path: str):
     train = df[df["split"] == "train"]
     typical = {c: (train[c].mode()[0] if c in CATEGORICAL else float(train[c].median()))
                for cols in FACTORS.values() for c in cols}
+    # Buyer vs non-buyer medians (training data) for the comparison strip
+    compare = {c: {"buyer": float(train.loc[train["Revenue"], c].median()),
+                   "non": float(train.loc[~train["Revenue"], c].median()),
+                   "max": float(train[c].quantile(0.95))}
+               for c in COMPARE}
     test = df[df["split"] == "test"].reset_index(drop=True)
-    return test, float(df["Revenue"].mean()), typical
+    return test, float(df["Revenue"].mean()), typical, compare
 
 
 model, cfg = load_model_and_config()
@@ -175,7 +214,7 @@ if model is None or not (sci_dir / "features.csv").exists():
              "`python -m src.run_model_pipeline` first.")
     st.stop()
 
-sessions, base_rate, typical = load_data(str(sci_dir / "features.csv"))
+sessions, base_rate, typical, compare = load_data(str(sci_dir / "features.csv"))
 meta_path = sci_dir / "model_meta.json"
 meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
 roc = meta.get("test_metrics", {}).get("main", {}).get("roc_auc", float("nan"))
@@ -328,17 +367,30 @@ with left:
     bars = "".join(f'<div style="width:{v / tot * 100:.2f}%;background:{c}">{f"{v / tot:.0%}" if v / tot > .08 else ""}</div>'
                    for _, v, c in parts if v > 0) or '<div style="width:100%;color:#6B7280">No time recorded</div>'
     legend = "".join(f'<span style="--c:{c}">{n} · {v / 60:.1f} min</span>' for n, v, c in parts)
+
+    def at(v, top):  # position on a 0..top scale, clamped to the bar
+        return min(max(v / top, 0), 1) * 100 if top > 0 else 0
+
+    cmp_rows = []
+    for col, (label, fmt) in COMPARE.items():
+        c = compare[col]
+        top = max(c["max"], c["buyer"], c["non"], 1e-9)
+        cmp_rows.append(
+            f'<div class="cmp"><div class="name">{label}</div><div class="scale">'
+            f'<div class="mk" style="left:{at(c["non"], top):.1f}%;background:#94A3B8" title="Typical non-buyer: {fmt(c["non"])}"></div>'
+            f'<div class="mk" style="left:{at(c["buyer"], top):.1f}%;background:#10B981" title="Typical buyer: {fmt(c["buyer"])}"></div>'
+            f'<div class="dot" style="left:{at(s[col], top):.1f}%" title="This visit: {fmt(s[col])}"></div>'
+            f'</div><div class="val">{fmt(s[col])}</div></div>')
     html(f"""
 <div class="card">
 <p class="story">{story}</p>
 <div class="journey">{bars}</div>
 <div class="legend">{legend}</div>
-<div class="kpis">
-<div class="kpi"><b>{int(s['ProductRelated'])}</b><span>Product pages</span><small>typical {typical['ProductRelated']:.0f}</small></div>
-<div class="kpi"><b>{s['ProductRelated_Duration'] / 60:.1f}m</b><span>On product pages</span><small>typical {typical['ProductRelated_Duration'] / 60:.1f}m</small></div>
-<div class="kpi"><b>{s['ExitRates']:.1%}</b><span>Exit rate</span><small>typical {typical['ExitRates']:.1%} · lower is better</small></div>
-<div class="kpi"><b>{s['BounceRates']:.1%}</b><span>Bounce rate</span><small>typical {typical['BounceRates']:.1%} · lower is better</small></div>
-</div>
+<div class="cmp-title">Compared with other visitors</div>
+{''.join(cmp_rows)}
+<div class="cmp-legend"><span><i style="background:#5B4CF0"></i>This visit</span>
+<span><u style="background:#10B981"></u>Typical buyer</span>
+<span><u style="background:#94A3B8"></u>Typical non-buyer</span></div>
 </div>
 """)
 
@@ -403,6 +455,60 @@ with right:
 ≥ {hi:.0%} likely buyer → no action<br>
 {lo:.0%}–{hi:.0%} hesitant → coupon if returning, chat if new<br>
 &lt; {lo:.0%} unlikely → no action</div>
+</div>
+""")
+
+# --------------------------------------------------------------------------- step 6: what-if lab
+html('<div class="label"><em>6</em>What-if lab · change the visit, watch the decision</div>')
+keys = {k: f"wi_{k}_{i}" for k in ("pp", "min", "exit", "month")}  # per-visit keys reset on a new visit
+
+
+def _reset_what_if():
+    for k in keys.values():
+        st.session_state.pop(k, None)
+
+
+left, right = st.columns([1.45, 1], gap="medium")
+with left:
+    with st.container(border=True):
+        a, b = st.columns(2)
+        pp = a.slider("Product pages viewed", 0, int(max(150, s["ProductRelated"] * 1.5)),
+                      int(s["ProductRelated"]), key=keys["pp"])
+        mins = b.slider("Minutes on product pages", 0.0, float(max(120.0, round(s["ProductRelated_Duration"] / 60 * 1.5))),
+                        float(round(s["ProductRelated_Duration"] / 60, 1)), step=0.5, format="%.1f", key=keys["min"])
+        a, b = st.columns(2)
+        exit_rate = a.slider("Exit rate of pages viewed (%)", 0.0, 20.0, float(round(s["ExitRates"] * 100, 1)),
+                             step=0.1, format="%.1f", key=keys["exit"], help="Lower means the visitor stayed on pages that rarely end a visit.")
+        month_opts = [m for m in MONTHS if m in set(sessions["Month"])]
+        month = b.selectbox("Month", month_opts, index=month_opts.index(s["Month"]),
+                            format_func=MONTHS.get, key=keys["month"])
+        st.button("↺  Reset to the real visit", on_click=_reset_what_if)
+
+alt = row.copy()
+alt["ProductRelated"], alt["ProductRelated_Duration"] = pp, mins * 60
+alt["ExitRates"], alt["Month"] = exit_rate / 100, month
+p_alt = float(model.predict_proba(engineer_features(alt))[:, 1][0])
+r_alt = decide(p_alt, s["VisitorType"], cfg)
+seg_alt = SEGMENTS[r_alt["segment"]]
+icon_alt, action_alt, _ = ACTIONS[r_alt["intervention"]]
+d = (p_alt - proba) * 100
+d_col = "#10B981" if d > 0.05 else "#EF4444" if d < -0.05 else "#9CA3AF"
+flipped = '<span class="flip">decision changed</span>' if r_alt["intervention"] != result["intervention"] or \
+    r_alt["segment"] != result["segment"] else ""
+
+with right:
+    html(f"""
+<div class="card">
+<div class="wi">
+<div><span>Real visit</span><b style="color:{seg['color']}">{pct(proba)}</b>
+<span class="badge" style="color:{seg['color']};background:{seg['soft']}">{seg['label']}</span></div>
+<div class="arrow">→</div>
+<div><span>What-if</span><b style="color:{seg_alt['color']}">{pct(p_alt)}</b>
+<span class="badge" style="color:{seg_alt['color']};background:{seg_alt['soft']}">{seg_alt['label']}</span></div>
+</div>
+<div class="wi-delta" style="color:{d_col}">{d:+.1f} pts</div>
+<div class="wi-action"><div class="ic">{icon_alt}</div>
+<div><b>{action_alt}{flipped}</b><small>Action the rule would take for this version of the visit</small></div></div>
 </div>
 """)
 

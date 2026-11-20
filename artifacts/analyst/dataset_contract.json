@@ -1,0 +1,217 @@
+{
+  "dataset": "UCI Online Shoppers Purchasing Intention (id 468)",
+  "file": "artifacts/analyst/clean_data.csv",
+  "version": "1.0",
+  "row_count": 12330,
+  "target": {
+    "name": "Revenue",
+    "type": "boolean",
+    "positive_class": true,
+    "positive_rate": 0.1547
+  },
+  "columns": {
+    "Administrative": {
+      "type": "integer",
+      "nullable": false,
+      "min": 0
+    },
+    "Administrative_Duration": {
+      "type": "float",
+      "nullable": false,
+      "min": 0
+    },
+    "Informational": {
+      "type": "integer",
+      "nullable": false,
+      "min": 0
+    },
+    "Informational_Duration": {
+      "type": "float",
+      "nullable": false,
+      "min": 0
+    },
+    "ProductRelated": {
+      "type": "integer",
+      "nullable": false,
+      "min": 0
+    },
+    "ProductRelated_Duration": {
+      "type": "float",
+      "nullable": false,
+      "min": 0
+    },
+    "BounceRates": {
+      "type": "float",
+      "nullable": false,
+      "min": 0,
+      "max": 1
+    },
+    "ExitRates": {
+      "type": "float",
+      "nullable": false,
+      "min": 0,
+      "max": 1
+    },
+    "PageValues": {
+      "type": "float",
+      "nullable": false,
+      "min": 0
+    },
+    "SpecialDay": {
+      "type": "float",
+      "nullable": false,
+      "min": 0,
+      "max": 1
+    },
+    "Month": {
+      "type": "category",
+      "nullable": false,
+      "allowed_values": [
+        "Feb",
+        "Mar",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec"
+      ]
+    },
+    "OperatingSystems": {
+      "type": "category_code",
+      "nullable": false,
+      "allowed_values": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    "Browser": {
+      "type": "category_code",
+      "nullable": false,
+      "allowed_values": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ]
+    },
+    "Region": {
+      "type": "category_code",
+      "nullable": false,
+      "allowed_values": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    "TrafficType": {
+      "type": "category_code",
+      "nullable": false,
+      "allowed_values": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20
+      ]
+    },
+    "VisitorType": {
+      "type": "category",
+      "nullable": false,
+      "allowed_values": [
+        "New_Visitor",
+        "Other",
+        "Returning_Visitor"
+      ]
+    },
+    "Weekend": {
+      "type": "boolean",
+      "nullable": false,
+      "allowed_values": [
+        false,
+        true
+      ]
+    },
+    "Revenue": {
+      "type": "boolean",
+      "nullable": false,
+      "allowed_values": [
+        false,
+        true
+      ]
+    }
+  },
+  "required_features": [
+    "Administrative",
+    "Administrative_Duration",
+    "Informational",
+    "Informational_Duration",
+    "ProductRelated",
+    "ProductRelated_Duration",
+    "BounceRates",
+    "ExitRates",
+    "PageValues",
+    "SpecialDay",
+    "Month",
+    "OperatingSystems",
+    "Browser",
+    "Region",
+    "TrafficType",
+    "VisitorType",
+    "Weekend"
+  ],
+  "main_model_excluded_features": [
+    "PageValues"
+  ],
+  "assumptions": [
+    "Each row is one completed session; each session belongs to a different user.",
+    "Sessions are complete, so predictions are a visit simulation, not real-time scoring.",
+    "Identical rows are distinct single-page bounce sessions and are kept.",
+    "OperatingSystems, Browser, Region and TrafficType are anonymized category codes, not quantities."
+  ],
+  "constraints": [
+    "No missing values in any column.",
+    "Counts and durations are >= 0.",
+    "BounceRates, ExitRates and SpecialDay are within [0, 1].",
+    "Categorical columns contain only the listed allowed_values.",
+    "PageValues is strongly tied to the purchase outcome; the main model must not use it."
+  ]
+}

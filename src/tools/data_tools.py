@@ -185,7 +185,8 @@ def build_contract(df: pd.DataFrame, main_drop: list[str]) -> dict:
 
 
 def save_contract(contract: dict, path: str | Path) -> None:
-    Path(path).write_text(json.dumps(contract, indent=2), encoding="utf-8")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:  # same bytes on every OS
+        f.write(json.dumps(contract, indent=2) + "\n")
 
 
 def load_contract(path: str | Path) -> dict:

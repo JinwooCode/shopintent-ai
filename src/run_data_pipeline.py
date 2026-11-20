@@ -40,7 +40,7 @@ def main() -> int:
         df, actions = clean(raw)
         for a in actions:
             log.info("  - %s", a)
-        df.to_csv(clean_path, index=False)
+        df.to_csv(clean_path, index=False, lineterminator="\n")  # same bytes on every OS
         log.info("Saved %s", clean_path.relative_to(resolve(".")))
 
         log.info("Step 3/4: building dataset contract")

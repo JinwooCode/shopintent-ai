@@ -11,6 +11,12 @@ paths:
 
 target: Revenue
 
+# LLM used by the CrewAI agents (key comes from .env, never from this file).
+# Switching provider = change these two lines + the matching key in .env.
+llm:
+  provider: openai
+  model: ""   # chosen when the crews are wired up (a small, cheap model)
+
 split:
   test_size: 0.15
   val_size: 0.15

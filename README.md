@@ -52,7 +52,34 @@ copy .env.example .env          # then add your LLM API key
 ## Run
 
 ```bash
-python -m src.run_data_pipeline     # raw CSV -> clean_data.csv + dataset_contract.json
-python -m src.run_model_pipeline    # -> features.csv, model.pkl, evaluation_report.md
+python -m src.flow                  # whole pipeline: raw CSV -> artifacts, with validation gates
 streamlit run app/streamlit_app.py  # visit simulation at http://localhost:8501
+```
+
+`python -m src.flow --plot` also opens an interactive diagram of the flow.
+
+### The flow
+
+```
+analyst_stage ──► handoff_gate ──handoff_ok──► scientist_stage ──► app_gate ──ready──► finish
+                       │                                              │
+                       └───────────────────failed─────────────────────┴──► handle_failure
+```
+
+| Step | What it does |
+|---|---|
+| `analyst_stage` | Raw CSV → `clean_data.csv` + `dataset_contract.json` |
+| `handoff_gate` | Checks that the contract matches the clean data and that all required model features exist |
+| `scientist_stage` | Features, model selection, main + comparison models, `evaluation_report.md` |
+| `app_gate` | Checks that the app can use the artifacts: the model loads and scores sessions end to end, and the main model excludes `PageValues` |
+
+If any check fails, the flow stops at that step, skips the later stages, logs the reason and exits with code 1.
+Each run writes a summary to `logs/flow_last_run.json` and a full log to `logs/pipeline.log`.
+All steps are deterministic (seed in `src/config.yaml`), so rerunning reproduces the artifacts byte for byte.
+
+The individual stages can still be run on their own:
+
+```bash
+python -m src.run_data_pipeline     # Data Analyst stage only
+python -m src.run_model_pipeline    # Data Scientist stage only
 ```

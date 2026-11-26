@@ -29,6 +29,7 @@ from src.tools.model_tools import (
     split,
     threshold_checks,
 )
+from src.tools.decision import segment as decide_segment
 from src.utils import get_logger, load_config, resolve
 
 ALGORITHMS = ["logistic_regression", "gradient_boosting"]
@@ -199,7 +200,40 @@ def main() -> int:
     with open(out_dir / "evaluation_report.md", "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(report))
 
-    for name in ("features.csv", "model.pkl", "model_with_pagevalues.pkl", "model_meta.json", "evaluation_report.md"):
+    # Structured copy of the evaluation, read by the Model Card agent (it never parses the markdown)
+    def _seg(table: pd.DataFrame) -> list[dict]:
+        return [{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}
+                for r in table.to_dict("records")]
+
+    test = parts["test"].assign(_p=test_main_proba)
+    by_visitor = []
+    for vt, g in test.groupby("VisitorType"):
+        segs = pd.Series([decide_segment(p, thresholds) for p in g["_p"]])
+        by_visitor.append({"visitor_type": vt, "sessions": int(len(g)),
+                           "actual_purchase_rate": round(float(g[TARGET].mean()), 4),
+                           "mean_predicted": round(float(g["_p"].mean()), 4),
+                           "share_hesitant": round(float((segs == "hesitant").mean()), 4)})
+    evaluation = {
+        "target": TARGET, "seed": seed, "baseline_purchase_rate": round(float(feats[TARGET].mean()), 4),
+        "rows": int(len(feats)),
+        "split": {s: {"sessions": int(sizes[s]), "purchase_rate": float(rates[s])} for s in ("train", "val", "test")},
+        "selection_metric": "pr_auc",
+        "selection": {a: {k: round(v, 4) for k, v in selection[a].items()} for a in ALGORITHMS},
+        "selected_algorithm": best_algo,
+        "test_metrics": meta["test_metrics"],
+        "thresholds": thresholds,
+        "threshold_checks": [{"check": n, "ok": ok} for n, ok in checks],
+        "val_segments": _seg(val_segments),
+        "test_segments": _seg(test_segments),
+        "test_by_visitor_type": by_visitor,
+        "main_features": num_main + cat_main,
+        "excluded_from_main": main_cfg["drop_features"],
+    }
+    with open(out_dir / "evaluation.json", "w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(evaluation, indent=2) + "\n")
+
+    for name in ("features.csv", "model.pkl", "model_with_pagevalues.pkl", "model_meta.json",
+                 "evaluation_report.md", "evaluation.json"):
         log.info("Saved %s", (out_dir / name).relative_to(resolve(".")))
     log.info("Model pipeline finished successfully.")
     return 0

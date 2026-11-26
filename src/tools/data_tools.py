@@ -132,6 +132,26 @@ def clean(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     return out, actions
 
 
+def quality_checks(df: pd.DataFrame) -> list[dict]:
+    """Extra data-quality observations on the clean data. Informational: they never stop the pipeline."""
+    out = []
+    for count, dur in COUNT_DURATION_PAIRS:
+        n = int(((df[count] == 0) & (df[dur] > 0)).sum())
+        out.append({"check": f"{count}: 0 pages but time recorded", "rows": n, "ok": n == 0,
+                    "detail": f"{n} sessions have {count} = 0 but {dur} > 0"})
+    long_sessions = int((df[[d for _, d in COUNT_DURATION_PAIRS]].sum(axis=1) > 3 * 3600).sum())
+    out.append({"check": "Very long sessions (over 3 hours)", "rows": long_sessions, "ok": True,
+                "detail": f"{long_sessions} sessions last over 3 hours in total; kept, the model uses robust trees"})
+    zero_time = int((df[[d for _, d in COUNT_DURATION_PAIRS]].sum(axis=1) == 0).sum())
+    out.append({"check": "Sessions with no time recorded", "rows": zero_time, "ok": True,
+                "detail": f"{zero_time} sessions have 0 seconds in total (single-page visits); kept"})
+    rate = float(df[TARGET].mean())
+    out.append({"check": "Class balance", "rows": int(df[TARGET].sum()), "ok": True,
+                "detail": f"{rate * 100:.1f}% of sessions are purchases; imbalanced, so splits are stratified "
+                          f"and PR-AUC is reported"})
+    return out
+
+
 # --------------------------------------------------------------------------- 3. contract
 def build_contract(df: pd.DataFrame, main_drop: list[str]) -> dict:
     """Describe the clean dataset: schema, allowed values, assumptions, constraints."""

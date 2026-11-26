@@ -1,0 +1,39 @@
+{
+  "draft": {
+    "purpose": "This model predicts whether an online shopping session will end in a purchase (target Revenue) to enable targeted interventions during the session. It supports marketing strategies by identifying likely buyers, hesitant shoppers, and unlikely purchasers based on session features.",
+    "intended_uses": [
+      "Targeting hesitant returning visitors with coupons to increase purchase likelihood.",
+      "Inviting hesitant new visitors to chat for assistance to improve conversion.",
+      "Segmenting sessions into buyer, hesitant, and unlikely categories for marketing interventions.",
+      "Analyzing visitor behavior patterns to optimize online store engagement."
+    ],
+    "out_of_scope": [
+      "Real-time prediction during ongoing sessions, as data are from completed sessions only.",
+      "Using the model for stores or domains other than the original online store dataset.",
+      "Relying on PageValues feature, which leaks outcome and is excluded from the main model.",
+      "Predicting exact purchase amounts or revenue beyond binary purchase classification."
+    ],
+    "training_data": "The model was trained on the UCI Online Shoppers Purchasing Intention dataset, consisting of 12,330 sessions from one online store over one year. Each session represents a unique user and is complete, simulating a full visit. The data include features such as Administrative, Informational, ProductRelated page counts and durations, BounceRates, ExitRates, SpecialDay, Weekend, TotalPages, TotalDuration, ProductPageShare, AvgSecondsPerProductPage, Month, VisitorType, OperatingSystems, Browser, Region, and TrafficType. The purchase rate is 15.5% across train, validation, and test splits, with stratified sampling on the target.",
+    "metrics_summary": "The main gradient boosting model achieved a test PR-AUC of 0.369 and ROC-AUC of 0.778, outperforming the random baseline PR-AUC of about 0.155 (the purchase rate). Precision at 0.5 threshold is 0.493 and recall is 0.122. The model segments sessions into buyer, hesitant, and unlikely groups with ordered purchase rates and passes threshold checks on validation. A comparison model using PageValues (not used in production) shows higher metrics but leaks outcome information and is excluded from deployment.",
+    "limitations": [
+      "The model is trained and evaluated on completed sessions, so it simulates visits rather than providing real-time predictions during active sessions.",
+      "The purchase rate is low (15.5%), leading to class imbalance that affects recall and precision trade-offs.",
+      "The model does not incorporate PageValues feature in production due to data leakage concerns, limiting potential performance gains.",
+      "Interventions are based on fixed thresholds set in advance and may not adapt dynamically to changing user behavior or external factors.",
+      "The dataset is from a single online store and may not generalize to other domains or time periods."
+    ],
+    "ethical_considerations": [
+      "Coupons are offered only to hesitant returning visitors, which may raise fairness concerns if visitor type correlates with demographics.",
+      "Chat invitations are extended to hesitant new visitors, potentially affecting user experience differently based on visitor classification.",
+      "No interventions are given to unlikely visitors, which may exclude some users who could benefit from assistance.",
+      "The model's predictions and interventions should be monitored to avoid reinforcing biases present in the training data.",
+      "Transparency about the model's use and intervention criteria is important to maintain user trust and comply with privacy regulations."
+    ]
+  },
+  "source": "agent",
+  "model": "gpt-4.1-mini",
+  "evaluation_sha": "de4279c36e4d",
+  "reused": false,
+  "problems": [],
+  "seconds": 0.0
+}

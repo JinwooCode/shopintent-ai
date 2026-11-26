@@ -1,0 +1,174 @@
+{
+  "target": "Revenue",
+  "seed": 42,
+  "baseline_purchase_rate": 0.1547,
+  "rows": 12330,
+  "split": {
+    "train": {
+      "sessions": 8630,
+      "purchase_rate": 0.1548
+    },
+    "val": {
+      "sessions": 1850,
+      "purchase_rate": 0.1546
+    },
+    "test": {
+      "sessions": 1850,
+      "purchase_rate": 0.1546
+    }
+  },
+  "selection_metric": "pr_auc",
+  "selection": {
+    "logistic_regression": {
+      "roc_auc": 0.7637,
+      "pr_auc": 0.3215,
+      "brier": 0.1167,
+      "precision@0.5": 0.4444,
+      "recall@0.5": 0.028,
+      "f1@0.5": 0.0526
+    },
+    "gradient_boosting": {
+      "roc_auc": 0.7734,
+      "pr_auc": 0.3464,
+      "brier": 0.1156,
+      "precision@0.5": 0.4576,
+      "recall@0.5": 0.0944,
+      "f1@0.5": 0.1565
+    }
+  },
+  "selected_algorithm": "gradient_boosting",
+  "test_metrics": {
+    "main": {
+      "roc_auc": 0.7776,
+      "pr_auc": 0.3686,
+      "brier": 0.1138,
+      "precision@0.5": 0.493,
+      "recall@0.5": 0.1224,
+      "f1@0.5": 0.1961
+    },
+    "comparison": {
+      "roc_auc": 0.9348,
+      "pr_auc": 0.7533,
+      "brier": 0.0694,
+      "precision@0.5": 0.7191,
+      "recall@0.5": 0.5909,
+      "f1@0.5": 0.6488
+    }
+  },
+  "thresholds": {
+    "unlikely_below": 0.2,
+    "buyer_from": 0.5
+  },
+  "threshold_checks": [
+    {
+      "check": "Every segment contains sessions",
+      "ok": true
+    },
+    {
+      "check": "Purchase rate is ordered: buyer > hesitant > unlikely",
+      "ok": true
+    },
+    {
+      "check": "Buyer segment converts above the overall rate",
+      "ok": true
+    },
+    {
+      "check": "Unlikely segment converts below the overall rate",
+      "ok": true
+    }
+  ],
+  "val_segments": [
+    {
+      "segment": "buyer",
+      "sessions": 59,
+      "share": 0.0319,
+      "actual_purchase_rate": 0.4576,
+      "mean_predicted": 0.5758
+    },
+    {
+      "segment": "hesitant",
+      "sessions": 481,
+      "share": 0.26,
+      "actual_purchase_rate": 0.3181,
+      "mean_predicted": 0.3123
+    },
+    {
+      "segment": "unlikely",
+      "sessions": 1310,
+      "share": 0.7081,
+      "actual_purchase_rate": 0.0809,
+      "mean_predicted": 0.0742
+    }
+  ],
+  "test_segments": [
+    {
+      "segment": "buyer",
+      "sessions": 71,
+      "share": 0.0384,
+      "actual_purchase_rate": 0.493,
+      "mean_predicted": 0.5804
+    },
+    {
+      "segment": "hesitant",
+      "sessions": 511,
+      "share": 0.2762,
+      "actual_purchase_rate": 0.2779,
+      "mean_predicted": 0.2984
+    },
+    {
+      "segment": "unlikely",
+      "sessions": 1268,
+      "share": 0.6854,
+      "actual_purchase_rate": 0.086,
+      "mean_predicted": 0.0728
+    }
+  ],
+  "test_by_visitor_type": [
+    {
+      "visitor_type": "New_Visitor",
+      "sessions": 265,
+      "actual_purchase_rate": 0.2604,
+      "mean_predicted": 0.2359,
+      "share_hesitant": 0.4679
+    },
+    {
+      "visitor_type": "Other",
+      "sessions": 11,
+      "actual_purchase_rate": 0.2727,
+      "mean_predicted": 0.2502,
+      "share_hesitant": 0.3636
+    },
+    {
+      "visitor_type": "Returning_Visitor",
+      "sessions": 1574,
+      "actual_purchase_rate": 0.136,
+      "mean_predicted": 0.1403,
+      "share_hesitant": 0.2433
+    }
+  ],
+  "main_features": [
+    "Administrative",
+    "Administrative_Duration",
+    "Informational",
+    "Informational_Duration",
+    "ProductRelated",
+    "ProductRelated_Duration",
+    "BounceRates",
+    "ExitRates",
+    "SpecialDay",
+    "Weekend",
+    "TotalPages",
+    "TotalDuration",
+    "ProductPageShare",
+    "AvgSecondsPerProductPage",
+    "Month",
+    "VisitorType",
+    "OperatingSystems",
+    "Browser",
+    "Region",
+    "TrafficType"
+  ],
+  "excluded_from_main": [
+    "PageValues"
+  ]
+}

@@ -3,7 +3,8 @@
     analyst_stage ──► validator_stage ──► validator_gate ──"data_ok"──►
     contract_stage ──► contract_gate ──"contract_ok"──►
     insights_stage ──► insights_gate ──"insights_ok"──►
-    handoff_gate ──"handoff_ok"──► scientist_stage ──► app_gate ──"ready"──►
+    handoff_gate ──"handoff_ok"──► scientist_stage ──► model_card_stage ──► model_card_gate ──"card_ok"──►
+    app_gate ──"ready"──►
     intervention_stage ──► intervention_gate ──"agent_ok"──► finish
 
     every gate can return "failed" ──► handle_failure
@@ -24,7 +25,11 @@ Stages:
   insights_gate    all analyst outputs exist; every number in insights.md is traced to the EDA facts;
                    PageValues stays out; the gate catches an invented number; the fallback is valid
   handoff_gate     validates the handoff: the contract matches the clean data and all required features exist
-  scientist_stage  Data Scientist work: features, model selection, models, evaluation report
+  scientist_stage  Data Scientist work: features, model selection, models, evaluation report + evaluation.json
+  model_card_stage Model Card agent writes purpose, uses, training data, metrics summary, limitations and
+                   ethics from evaluation.json -> model_card.md (tables by code); src/agents/model_card_agent.py
+  model_card_gate  all brief sections present; the main model's PR-AUC is quoted (never the PageValues model's);
+                   the simulation limit and intervention ethics are covered; numbers traced; fallback valid
   app_gate         confirms the Streamlit app can use the artifacts (files exist, model loads and scores,
                    main model excludes PageValues)
   intervention_stage  the intervention agent writes one coupon and one chat message for hesitant test
@@ -66,6 +71,10 @@ from src.agents.contract_agent import machine_part as contract_machine_part
 from src.agents.contract_agent import make_input as contract_input
 from src.agents.contract_agent import save as save_contract_docs
 from src.agents.contract_agent import validate_docs, write_contract_docs
+from src.agents.model_card_agent import fallback_draft as model_card_fallback
+from src.agents.model_card_agent import make_input as model_card_input
+from src.agents.model_card_agent import save as save_model_card
+from src.agents.model_card_agent import validate_card, write_model_card
 from src.agents.validator_agent import fallback_draft as quality_fallback
 from src.agents.validator_agent import make_input as validator_input
 from src.agents.validator_agent import save as save_quality
@@ -87,7 +96,7 @@ ANALYST_OUTPUTS = ["clean_data.csv", "dataset_contract.json", "data_quality.json
                    "data_quality_report.json", "contract_docs.json", "dataset_contract.md",
                    "eda_stats.json", "eda_report.html", "insights.md", "insights.json"]
 SCIENTIST_OUTPUTS = ["features.csv", "model.pkl", "model_with_pagevalues.pkl",
-                     "model_meta.json", "evaluation_report.md"]
+                     "model_meta.json", "evaluation_report.md", "evaluation.json"]
 
 
 class StepResult(BaseModel):
@@ -389,11 +398,75 @@ class ShopIntentFlow(Flow[ShopIntentState]):
         details = missing or [f"exit code {rc}"]
         return self._record("scientist_stage", rc == 0 and not missing, t0, details)
 
-    # ------------------------------------------------------------------ app readiness
-    @router(scientist_stage, emit=["ready", "failed"])
-    def app_gate(self, scientist_ok: bool):
+    # ------------------------------------------------------------------ 2a. Model Card agent
+    @listen(scientist_stage)
+    def model_card_stage(self, scientist_ok: bool):
+        """The agent writes the judgement sections of model_card.md from evaluation.json."""
         if not scientist_ok:
+            return False
+        log.info("[flow] ===== Stage 2a: Model Card agent (%s) =====",
+                 "LLM" if self.use_llm else "LLM off, fallback only")
+        t0 = time.perf_counter()
+        cfg = load_config()
+        s_dir = resolve(cfg["paths"]["scientist_dir"])
+        (s_dir / "model_card.md").unlink(missing_ok=True)   # never leave an outdated card behind
+        try:
+            self._evaluation = json.loads((s_dir / "evaluation.json").read_text(encoding="utf-8"))
+            meta = json.loads((s_dir / "model_meta.json").read_text(encoding="utf-8"))
+            self._model_card = write_model_card(self._evaluation, cfg, use_llm=self.use_llm,
+                                                refresh=self.refresh_agents)
+            save_model_card(self._model_card, self._evaluation, meta, cfg)
+        except Exception as e:
+            log.exception("Model card stage crashed")
+            return self._record("model_card_stage", False, t0, [f"{type(e).__name__}: {e}"])
+        r = self._model_card
+        detail = f"model_card.md: source={r.source}" + (" (reused, no LLM call)" if r.reused else "") + \
+                 (f" ({'; '.join(r.problems)})" if r.problems else "")
+        return self._record("model_card_stage", True, t0, [detail])
+
+    @router(model_card_stage, emit=["card_ok", "failed"])
+    def model_card_gate(self, stage_ok: bool):
+        """The model card keeps to its contract and matches the evaluation."""
+        if not stage_ok:
             return "failed"
+        log.info("[flow] ===== Model card validation =====")
+        t0 = time.perf_counter()
+        problems, passed = self._missing("scientist_dir", ["evaluation.json", "model_card.md", "model_card.json"]), []
+        try:
+            inp = model_card_input(self._evaluation)
+            d = self._model_card.draft
+            errs = validate_card(d, inp)
+            if errs:
+                problems += [f"model_card.md fails the gate: {e}" for e in errs]
+            else:
+                passed.append(f"model_card.md ({self._model_card.source}): all brief sections present (purpose, "
+                              f"training data, metrics, limitations, ethics), main PR-AUC {inp.main_pr_auc} quoted, "
+                              f"every number traced")
+            wrong = d.model_copy(update={"metrics_summary": d.metrics_summary.replace(inp.main_pr_auc, "0.753")})
+            if validate_card(wrong, inp):
+                passed.append("Gate rejects a card that reports the PageValues model's score as the main score")
+            else:
+                problems.append("Gate let a card with the wrong main score through")
+            if validate_card(model_card_fallback(self._evaluation), inp):
+                problems.append("Fallback model card fails the gate")
+            else:
+                passed.append("Fallback model card passes the gate")
+            self.state.agent_sources["model_card"] = self._model_card.source
+        except Exception as e:
+            problems.append(f"{type(e).__name__}: {e}")
+        if problems:
+            for p in problems:
+                log.error("  FAIL  %s", p)
+            self._record("model_card_gate", False, t0, problems)
+            return "failed"
+        for p in passed:
+            log.info("  OK  %s", p)
+        self._record("model_card_gate", True, t0, passed)
+        return "card_ok"
+
+    # ------------------------------------------------------------------ app readiness
+    @router("card_ok", emit=["ready", "failed"])
+    def app_gate(self, *_):
         log.info("[flow] ===== App readiness check =====")
         t0 = time.perf_counter()
         cfg = load_config()

@@ -3,7 +3,8 @@
     analyst_stage ──► validator_stage ──► validator_gate ──"data_ok"──►
     contract_stage ──► contract_gate ──"contract_ok"──►
     insights_stage ──► insights_gate ──"insights_ok"──►
-    handoff_gate ──"handoff_ok"──► scientist_stage ──► evaluator_stage ──► evaluator_gate ──"eval_ok"──►
+    handoff_gate ──"handoff_ok"──► scientist_stage ──► feature_stage ──► feature_gate ──"features_ok"──►
+    evaluator_stage ──► evaluator_gate ──"eval_ok"──►
     model_card_stage ──► model_card_gate ──"card_ok"──►
     app_gate ──"ready"──►
     intervention_stage ──► intervention_gate ──"agent_ok"──► finish
@@ -27,6 +28,10 @@ Stages:
                    PageValues stays out; the gate catches an invented number; the fallback is valid
   handoff_gate     validates the handoff: the contract matches the clean data and all required features exist
   scientist_stage  Data Scientist work: features, model selection, models, evaluation report + evaluation.json
+  feature_stage    permutation importance on validation (Python) -> feature_importance.json; Feature Analyst
+                   agent explains it -> features.md (src/agents/feature_agent.py)
+  feature_gate     importance is reproducible (recomputed) and excludes PageValues; the agent's top 5, order,
+                   engineered verdicts and effect directions match the code; numbers traced; fallback valid
   evaluator_stage  Model Evaluator agent explains evaluation.json -> evaluation_interpretation.md
                    (src/agents/evaluator_agent.py)
   evaluator_gate   a fixed rule recommends keeping the main model (threshold checks pass, PR-AUC >= 2x the
@@ -77,6 +82,11 @@ from src.agents.contract_agent import machine_part as contract_machine_part
 from src.agents.contract_agent import make_input as contract_input
 from src.agents.contract_agent import save as save_contract_docs
 from src.agents.contract_agent import validate_docs, write_contract_docs
+from src.agents.feature_agent import fallback_draft as features_fallback
+from src.agents.feature_agent import make_input as feature_input
+from src.agents.feature_agent import save as save_features
+from src.agents.feature_agent import validate_features, write_feature_analysis
+from src.tools.importance_tools import compute_importance, save_importance
 from src.agents.evaluator_agent import fallback_draft as evaluator_fallback
 from src.agents.evaluator_agent import make_input as evaluator_input
 from src.agents.evaluator_agent import save as save_interpretation
@@ -101,6 +111,7 @@ from src.tools.model_tools import CATEGORICAL, check_required_features, engineer
 from src.utils import get_logger, load_config, resolve
 
 log = get_logger("flow")
+PAGEVALUES_NAME = "PageValues"
 
 ANALYST_OUTPUTS = ["clean_data.csv", "dataset_contract.json", "data_quality.json", "data_quality.md",
                    "data_quality_report.json", "contract_docs.json", "dataset_contract.md",
@@ -408,13 +419,88 @@ class ShopIntentFlow(Flow[ShopIntentState]):
         details = missing or [f"exit code {rc}"]
         return self._record("scientist_stage", rc == 0 and not missing, t0, details)
 
-    # ------------------------------------------------------------------ 2a. Model Evaluator agent
+    # ------------------------------------------------------------------ 2a. Feature Analyst agent
     @listen(scientist_stage)
-    def evaluator_stage(self, scientist_ok: bool):
-        """The agent explains evaluation.json in evaluation_interpretation.md."""
+    def feature_stage(self, scientist_ok: bool):
+        """Permutation importance (Python) -> feature_importance.json; the agent explains it in features.md."""
         if not scientist_ok:
             return False
-        log.info("[flow] ===== Stage 2a: Model Evaluator agent (%s) =====",
+        log.info("[flow] ===== Stage 2a: Feature Analyst agent (%s) =====",
+                 "LLM" if self.use_llm else "LLM off, fallback only")
+        t0 = time.perf_counter()
+        cfg = load_config()
+        s_dir = resolve(cfg["paths"]["scientist_dir"])
+        (s_dir / "features.md").unlink(missing_ok=True)
+        try:
+            m = json.loads((s_dir / "model_meta.json").read_text(encoding="utf-8"))["main_model"]
+            self._importance_args = (s_dir, m["numeric_features"], m["categorical_features"], cfg["seed"])
+            self._importance = compute_importance(joblib.load(s_dir / "model.pkl"),
+                                                  pd.read_csv(s_dir / "features.csv"), *self._importance_args[1:])
+            save_importance(self._importance, s_dir / "feature_importance.json")
+            self._features = write_feature_analysis(self._importance, cfg, use_llm=self.use_llm,
+                                                    refresh=self.refresh_agents)
+            save_features(self._features, self._importance, cfg)
+        except Exception as e:
+            log.exception("Feature stage crashed")
+            return self._record("feature_stage", False, t0, [f"{type(e).__name__}: {e}"])
+        r = self._features
+        detail = f"features.md: source={r.source}, top 3 {[t.feature for t in r.draft.top_features[:3]]}" + \
+                 (" (reused, no LLM call)" if r.reused else "") + (f" ({'; '.join(r.problems)})" if r.problems else "")
+        return self._record("feature_stage", True, t0, ["feature_importance.json written", detail])
+
+    @router(feature_stage, emit=["features_ok", "failed"])
+    def feature_gate(self, stage_ok: bool):
+        """Importance is reproducible, excludes PageValues, and the analysis keeps to its contract."""
+        if not stage_ok:
+            return "failed"
+        log.info("[flow] ===== Feature analysis validation =====")
+        t0 = time.perf_counter()
+        problems, passed = [], []
+        try:
+            s_dir, num, cat, seed = self._importance_args
+            again = compute_importance(joblib.load(s_dir / "model.pkl"), pd.read_csv(s_dir / "features.csv"),
+                                       num, cat, seed)
+            if again != self._importance:
+                problems.append("Feature importance is not reproducible (two runs differ)")
+            else:
+                passed.append("Feature importance is reproducible (recomputed, identical)")
+            if any(PAGEVALUES_NAME == r["feature"] for r in self._importance["features"]):
+                problems.append("PageValues appears among the main model's features")
+            inp = feature_input(self._importance)
+            d = self._features.draft
+            errs = validate_features(d, inp)
+            if errs:
+                problems += [f"features.md fails the gate: {e}" for e in errs]
+            else:
+                passed.append(f"features.md ({self._features.source}): top {len(inp.top)} and engineered verdicts "
+                              f"match the code, directions agree, every number traced")
+            swapped = d.model_copy(update={"top_features": d.top_features[::-1]})
+            if validate_features(swapped, inp):
+                passed.append("Gate rejects a wrong feature ranking")
+            else:
+                problems.append("Gate let a wrong feature ranking through")
+            if validate_features(features_fallback(self._importance), inp):
+                problems.append("Fallback feature analysis fails the gate")
+            else:
+                passed.append("Fallback feature analysis passes the gate")
+            self.state.agent_sources["features"] = self._features.source
+        except Exception as e:
+            problems.append(f"{type(e).__name__}: {e}")
+        if problems:
+            for p in problems:
+                log.error("  FAIL  %s", p)
+            self._record("feature_gate", False, t0, problems)
+            return "failed"
+        for p in passed:
+            log.info("  OK  %s", p)
+        self._record("feature_gate", True, t0, passed)
+        return "features_ok"
+
+    # ------------------------------------------------------------------ 2b. Model Evaluator agent
+    @listen("features_ok")
+    def evaluator_stage(self, *_):
+        """The agent explains evaluation.json in evaluation_interpretation.md."""
+        log.info("[flow] ===== Stage 2b: Model Evaluator agent (%s) =====",
                  "LLM" if self.use_llm else "LLM off, fallback only")
         t0 = time.perf_counter()
         cfg = load_config()
@@ -481,7 +567,7 @@ class ShopIntentFlow(Flow[ShopIntentState]):
     @listen("eval_ok")
     def model_card_stage(self, *_):
         """The agent writes the judgement sections of model_card.md from evaluation.json."""
-        log.info("[flow] ===== Stage 2b: Model Card agent (%s) =====",
+        log.info("[flow] ===== Stage 2c: Model Card agent (%s) =====",
                  "LLM" if self.use_llm else "LLM off, fallback only")
         t0 = time.perf_counter()
         cfg = load_config()

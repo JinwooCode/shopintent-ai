@@ -33,8 +33,10 @@ A **Streamlit app** runs a *visit simulation*: it scores a completed session fro
 data/raw/             original dataset
 artifacts/analyst/    Data Analyst crew outputs
 artifacts/scientist/  Data Scientist crew outputs
-src/config.yaml       seed, paths, thresholds, rules
+artifacts/agents/     sample intervention agent messages
+src/config.yaml       seed, paths, thresholds, rules, agent settings
 src/tools/            deterministic Python tools (cleaning, validation, training)
+src/agents/           intervention agent (acts after the rule decides)
 src/crews/            CrewAI crews
 app/                  Streamlit app
 logs/                 run logs
@@ -61,9 +63,11 @@ streamlit run app/streamlit_app.py  # visit simulation at http://localhost:8501
 ### The flow
 
 ```
-analyst_stage ──► handoff_gate ──handoff_ok──► scientist_stage ──► app_gate ──ready──► finish
+analyst_stage ──► handoff_gate ──handoff_ok──► scientist_stage ──► app_gate ──ready──►
                        │                                              │
-                       └───────────────────failed─────────────────────┴──► handle_failure
+intervention_stage ──► intervention_gate ──agent_ok──► finish         │
+                              │                                       │
+                       ───────┴───────────failed──────────────────────┴──► handle_failure
 ```
 
 | Step | What it does |
@@ -72,10 +76,28 @@ analyst_stage ──► handoff_gate ──handoff_ok──► scientist_stage �
 | `handoff_gate` | Checks that the contract matches the clean data and that all required model features exist |
 | `scientist_stage` | Features, model selection, main + comparison models, `evaluation_report.md` |
 | `app_gate` | Checks that the app can use the artifacts: the model loads and scores sessions end to end, and the main model excludes `PageValues` |
+| `intervention_stage` | The intervention agent writes one coupon and one chat message for hesitant test visits → `artifacts/agents/intervention_samples.json` |
+| `intervention_gate` | Checks the agent contract: every message passes the output gate, buyer/unlikely visits and inputs that contradict the rule are refused, bad drafts are caught, the fallback works |
 
 If any check fails, the flow stops at that step, skips the later stages, logs the reason and exits with code 1.
 Each run writes a summary to `logs/flow_last_run.json` and a full log to `logs/pipeline.log`.
 All steps are deterministic (seed in `src/config.yaml`), so rerunning reproduces the artifacts byte for byte.
+
+`python -m src.flow --no-llm` runs everything without API calls (the agent stage uses the fallback templates).
+
+### The intervention agent
+
+The agent does **not** replace the model or the thresholds. The model gives a probability, the fixed rule decides
+whether to intervene, and only then does the agent write the wording (`src/agents/intervention_agent.py`).
+
+| | |
+|---|---|
+| **Input** | `InterventionInput`: one hesitant visit whose rule decision is coupon (returning) or chat (new). The agent re-runs the rule and refuses any other visit. |
+| **Output** | `InterventionMessage`: headline, message, button text. Discount, coupon code and validity come from `config.yaml`, never from the LLM. |
+| **Check** | Lengths, coupon text has the exact code and discount and no other percentage, chat text offers no discount, no mention of the model or score. It runs as a CrewAI task guardrail (one retry with feedback) and again after the run. |
+| **On failure** | No API key, API error, timeout, or output that still fails the check → the fixed template from `config.yaml` is shown, marked as fallback, with the reason. The decision never changes. |
+
+Every call is logged to `logs/intervention_agent.jsonl`. In the app, hesitant visits get a **Write the message** button.
 
 The individual stages can still be run on their own:
 

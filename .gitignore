@@ -15,6 +15,7 @@ venv/
 
 # Logs
 logs/*.log
+logs/*.jsonl
 logs/flow_last_run.json
 
 # OS / editors

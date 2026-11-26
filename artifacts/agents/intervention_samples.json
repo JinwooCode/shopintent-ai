@@ -1,0 +1,30 @@
+[
+  {
+    "session_id": 13,
+    "intervention": "coupon",
+    "headline": "Welcome Back! Enjoy 10% Off Your Purchase",
+    "message": "Thanks for exploring so many products with us. As a returning visitor, we'd like to offer you 10% off your next order. Use code SHOP10-BD307 at checkout. This code is valid for 48 hours, so take your time to find what you love.",
+    "cta": "Apply 10% Off Now",
+    "coupon_code": "SHOP10-BD307",
+    "discount_pct": 10,
+    "valid_hours": 48,
+    "source": "agent",
+    "model": "gpt-4.1-mini",
+    "problems": [],
+    "seconds": 2.99
+  },
+  {
+    "session_id": 48,
+    "intervention": "chat",
+    "headline": "Welcome to ShopIntent Store!",
+    "message": "Hi there! I see you've been exploring many products. If you have any questions about our items, sizing, shipping, or returns, I'm here to help you find exactly what you need.",
+    "cta": "Chat with us now",
+    "coupon_code": null,
+    "discount_pct": null,
+    "valid_hours": null,
+    "source": "agent",
+    "model": "gpt-4.1-mini",
+    "problems": [],
+    "seconds": 1.69
+  }
+]

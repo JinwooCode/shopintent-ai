@@ -1,0 +1,71 @@
+{
+  "draft": {
+    "summary": "The purchase prediction model is primarily driven by session signals related to user exit behavior, timing, visitor type, and engagement with product and administrative pages. ExitRates has the highest importance, indicating that sessions with higher exit rates tend to have lower purchase probabilities. Month and VisitorType also significantly influence predictions, reflecting temporal and visitor status effects. Time spent on product and administrative pages positively correlates with purchase likelihood, highlighting the importance of user engagement with key content.",
+    "top_features": [
+      {
+        "feature": "ExitRates",
+        "what_it_measures": "Average exit rate of the pages viewed in the session, representing the share of page views that were the last in their session.",
+        "effect": "Higher values go with a LOWER predicted purchase probability.",
+        "business_meaning": "High exit rates suggest visitors are leaving the site without purchasing, indicating potential issues in retaining interest or converting visits into sales."
+      },
+      {
+        "feature": "Month",
+        "what_it_measures": "The month during which the visit occurred.",
+        "effect": "Effect depends on the specific month value.",
+        "business_meaning": "Seasonal trends affect purchase likelihood, so understanding monthly patterns can help optimize marketing and inventory strategies."
+      },
+      {
+        "feature": "VisitorType",
+        "what_it_measures": "Categorization of the visitor as new, returning, or other.",
+        "effect": "Effect depends on the visitor type value.",
+        "business_meaning": "Different visitor types exhibit varying purchase behaviors; targeting returning visitors differently from new ones can improve conversion rates."
+      },
+      {
+        "feature": "ProductRelated_Duration",
+        "what_it_measures": "Total seconds spent on product pages during the session.",
+        "effect": "Higher values go with a HIGHER predicted purchase probability.",
+        "business_meaning": "More time spent on product pages indicates stronger interest, increasing the chance of purchase and highlighting the importance of engaging product content."
+      },
+      {
+        "feature": "Administrative_Duration",
+        "what_it_measures": "Total seconds spent on account-management pages during the session.",
+        "effect": "Higher values go with a HIGHER predicted purchase probability.",
+        "business_meaning": "Engagement with administrative pages may reflect serious intent or account activity, correlating with higher purchase likelihood."
+      }
+    ],
+    "engineered": [
+      {
+        "feature": "AvgSecondsPerProductPage",
+        "verdict": "useful",
+        "explanation": "This feature measures average time spent per product page and has a positive correlation with purchase probability, indicating its usefulness in the model."
+      },
+      {
+        "feature": "ProductPageShare",
+        "verdict": "useful",
+        "explanation": "This feature represents the proportion of product pages among all pages viewed and negatively correlates with purchase probability, providing valuable information."
+      },
+      {
+        "feature": "TotalPages",
+        "verdict": "useful",
+        "explanation": "Total number of pages viewed in the session positively correlates with purchase probability, making it a useful feature."
+      },
+      {
+        "feature": "TotalDuration",
+        "verdict": "weak",
+        "explanation": "Total time spent on all page types shows a positive correlation but has low importance and high spread, indicating a weak effect in the model."
+      }
+    ],
+    "low_impact_note": "Features Informational, Weekend, Region, Browser, and Informational_Duration show no measurable effect on purchase prediction, meaning their values do not significantly influence the model's output and can be considered low impact for this task.",
+    "caveats": [
+      "Correlated features can share importance, so low rank does not imply useless information.",
+      "Importance values are based on permutation importance with PR-AUC scoring and may vary due to spread.",
+      "Categorical feature effects depend on specific category values and are not summarized here."
+    ]
+  },
+  "source": "agent",
+  "model": "gpt-4.1-mini",
+  "importance_sha": "2fd32413e067",
+  "reused": false,
+  "problems": [],
+  "seconds": 0.0
+}

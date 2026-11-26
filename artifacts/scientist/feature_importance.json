@@ -1,0 +1,194 @@
+{
+  "method": "permutation importance on the validation split, scored by PR-AUC (average precision)",
+  "n_repeats": 5,
+  "seed": 42,
+  "validation_sessions": 1850,
+  "features": [
+    {
+      "feature": "ExitRates",
+      "kind": "numeric",
+      "engineered": false,
+      "importance": 0.0709,
+      "importance_std": 0.009,
+      "direction_rho": -0.751,
+      "rank": 1
+    },
+    {
+      "feature": "Month",
+      "kind": "categorical",
+      "engineered": false,
+      "importance": 0.0503,
+      "importance_std": 0.0037,
+      "direction_rho": null,
+      "rank": 2
+    },
+    {
+      "feature": "VisitorType",
+      "kind": "categorical",
+      "engineered": false,
+      "importance": 0.0226,
+      "importance_std": 0.0022,
+      "direction_rho": null,
+      "rank": 3
+    },
+    {
+      "feature": "ProductRelated_Duration",
+      "kind": "numeric",
+      "engineered": false,
+      "importance": 0.02,
+      "importance_std": 0.0049,
+      "direction_rho": 0.627,
+      "rank": 4
+    },
+    {
+      "feature": "Administrative_Duration",
+      "kind": "numeric",
+      "engineered": false,
+      "importance": 0.0199,
+      "importance_std": 0.0067,
+      "direction_rho": 0.506,
+      "rank": 5
+    },
+    {
+      "feature": "AvgSecondsPerProductPage",
+      "kind": "numeric",
+      "engineered": true,
+      "importance": 0.0191,
+      "importance_std": 0.0058,
+      "direction_rho": 0.448,
+      "rank": 6
+    },
+    {
+      "feature": "ProductPageShare",
+      "kind": "numeric",
+      "engineered": true,
+      "importance": 0.015,
+      "importance_std": 0.0026,
+      "direction_rho": -0.434,
+      "rank": 7
+    },
+    {
+      "feature": "TrafficType",
+      "kind": "categorical",
+      "engineered": false,
+      "importance": 0.0107,
+      "importance_std": 0.0061,
+      "direction_rho": null,
+      "rank": 8
+    },
+    {
+      "feature": "ProductRelated",
+      "kind": "numeric",
+      "engineered": false,
+      "importance": 0.0072,
+      "importance_std": 0.0037,
+      "direction_rho": 0.587,
+      "rank": 9
+    },
+    {
+      "feature": "Administrative",
+      "kind": "numeric",
+      "engineered": false,
+      "importance": 0.0057,
+      "importance_std": 0.0018,
+      "direction_rho": 0.505,
+      "rank": 10
+    },
+    {
+      "feature": "TotalPages",
+      "kind": "numeric",
+      "engineered": true,
+      "importance": 0.0053,
+      "importance_std": 0.0012,
+      "direction_rho": 0.608,
+      "rank": 11
+    },
+    {
+      "feature": "OperatingSystems",
+      "kind": "categorical",
+      "engineered": false,
+      "importance": 0.003,
+      "importance_std": 0.0042,
+      "direction_rho": null,
+      "rank": 12
+    },
+    {
+      "feature": "SpecialDay",
+      "kind": "numeric",
+      "engineered": false,
+      "importance": 0.0025,
+      "importance_std": 0.0043,
+      "direction_rho": -0.275,
+      "rank": 13
+    },
+    {
+      "feature": "BounceRates",
+      "kind": "numeric",
+      "engineered": false,
+      "importance": 0.0014,
+      "importance_std": 0.002,
+      "direction_rho": -0.462,
+      "rank": 14
+    },
+    {
+      "feature": "TotalDuration",
+      "kind": "numeric",
+      "engineered": true,
+      "importance": 0.0007,
+      "importance_std": 0.004,
+      "direction_rho": 0.643,
+      "rank": 15
+    },
+    {
+      "feature": "Informational",
+      "kind": "numeric",
+      "engineered": false,
+      "importance": -0.0006,
+      "importance_std": 0.0017,
+      "direction_rho": 0.315,
+      "rank": 16
+    },
+    {
+      "feature": "Weekend",
+      "kind": "numeric",
+      "engineered": false,
+      "importance": -0.0013,
+      "importance_std": 0.0012,
+      "direction_rho": 0.047,
+      "rank": 17
+    },
+    {
+      "feature": "Region",
+      "kind": "categorical",
+      "engineered": false,
+      "importance": -0.0018,
+      "importance_std": 0.0023,
+      "direction_rho": null,
+      "rank": 18
+    },
+    {
+      "feature": "Browser",
+      "kind": "categorical",
+      "engineered": false,
+      "importance": -0.0049,
+      "importance_std": 0.0031,
+      "direction_rho": null,
+      "rank": 19
+    },
+    {
+      "feature": "Informational_Duration",
+      "kind": "numeric",
+      "engineered": false,
+      "importance": -0.0061,
+      "importance_std": 0.0027,
+      "direction_rho": 0.31,
+      "rank": 20
+    }
+  ],
+  "engineered_definitions": {
+    "TotalPages": "Administrative + Informational + ProductRelated pages in the session",
+    "TotalDuration": "total seconds on all three page types",
+    "ProductPageShare": "ProductRelated / TotalPages (0 when no pages)",
+    "AvgSecondsPerProductPage": "ProductRelated_Duration / ProductRelated (0 when no product pages)"
+  }
+}

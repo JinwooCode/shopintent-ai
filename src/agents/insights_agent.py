@@ -22,8 +22,6 @@ Contract
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 import re
 import time
@@ -33,14 +31,13 @@ from typing import Literal
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-from src.agents.common import make_llm, short_error
+from src.agents.common import FREE_NUMBERS, invented_problem, make_llm, numbers_in, sha_of, short_error
 from src.tools.eda_tools import stats_to_facts
 from src.utils import get_logger, load_config, resolve
 
 load_dotenv(resolve(".env"))
 log = get_logger("insights_agent")
 
-NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 LEAK = re.compile(r"page\s*values?", re.I)
 LIMITS = {"summary": 600, "title": 90, "finding": 420, "action": 300, "caveat": 250}
 FIXED_CAVEATS = [
@@ -79,7 +76,7 @@ class InsightsResult(BaseModel):
 
 
 def stats_sha(stats: dict) -> str:
-    return hashlib.sha256(json.dumps(stats, sort_keys=True).encode()).hexdigest()[:12]
+    return sha_of(stats)
 
 
 def make_input(stats: dict) -> InsightsInput:
@@ -87,10 +84,6 @@ def make_input(stats: dict) -> InsightsInput:
 
 
 # --------------------------------------------------------------------------- gate
-def _numbers(text: str) -> set[float]:
-    return {float(n.replace(",", "")) for n in NUMBER.findall(text)}
-
-
 def validate_insights(draft: InsightsDraft, facts: list[str]) -> list[str]:
     problems = []
     if not 4 <= len(draft.insights) <= 6:
@@ -106,7 +99,7 @@ def validate_insights(draft: InsightsDraft, facts: list[str]) -> list[str]:
                 problems.append(f"insight {i}: {field} is empty")
             elif len(text) > LIMITS[field]:
                 problems.append(f"insight {i}: {field} is {len(text)} chars, limit {LIMITS[field]}")
-        if not _numbers(ins.finding) - set(range(11)):
+        if not numbers_in(ins.finding) - FREE_NUMBERS:
             problems.append(f"insight {i}: the finding must cite at least one number from the facts")
     if len(draft.caveats) > 4:
         problems.append(f"At most 4 caveats, got {len(draft.caveats)}")
@@ -114,13 +107,8 @@ def validate_insights(draft: InsightsDraft, facts: list[str]) -> list[str]:
         if len(c) > LIMITS["caveat"]:
             problems.append(f"caveat is {len(c)} chars, limit {LIMITS['caveat']}")
 
-    allowed = _numbers(" ".join(facts)) | set(map(float, range(11)))
     text = " ".join([draft.summary, *draft.caveats] + [f"{x.title} {x.finding} {x.action}" for x in draft.insights])
-    invented = sorted(n for n in _numbers(text) if n not in allowed)
-    if invented:
-        shown = ", ".join(f"{n:g}" for n in invented[:8])
-        problems.append(f"Numbers not found in the facts (invented or derived): {shown}. "
-                        f"Use numbers exactly as written in the facts")
+    problems += invented_problem(text, facts)
     if LEAK.search(text):
         problems.append("Do not mention PageValues (it leaks the answer and is excluded)")
     return problems

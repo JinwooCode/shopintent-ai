@@ -1,0 +1,75 @@
+{
+  "status": "ready",
+  "failed_step": null,
+  "raw": {
+    "rows": 12330,
+    "columns": 18,
+    "missing_values": {},
+    "duplicate_rows": 125,
+    "negative_values": {},
+    "positive_rate": 0.1547,
+    "month_values": [
+      "Aug",
+      "Dec",
+      "Feb",
+      "Jul",
+      "June",
+      "Mar",
+      "May",
+      "Nov",
+      "Oct",
+      "Sep"
+    ]
+  },
+  "cleaning_actions": [
+    "Month: renamed 'June' -> 'Jun' in 288 rows",
+    "Kept 125 identical rows (single-page bounce sessions from different users)",
+    "Final shape: 12330 rows x 18 columns"
+  ],
+  "contract_checks": [
+    "All 18 contract columns present, no extra columns",
+    "All 17 required features present",
+    "No missing values",
+    "Numeric ranges within contract bounds",
+    "Categorical values within allowed_values"
+  ],
+  "extra_checks": [
+    {
+      "check": "Administrative: 0 pages but time recorded",
+      "rows": 0,
+      "ok": true,
+      "detail": "0 sessions have Administrative = 0 but Administrative_Duration > 0"
+    },
+    {
+      "check": "Informational: 0 pages but time recorded",
+      "rows": 0,
+      "ok": true,
+      "detail": "0 sessions have Informational = 0 but Informational_Duration > 0"
+    },
+    {
+      "check": "ProductRelated: 0 pages but time recorded",
+      "rows": 0,
+      "ok": true,
+      "detail": "0 sessions have ProductRelated = 0 but ProductRelated_Duration > 0"
+    },
+    {
+      "check": "Very long sessions (over 3 hours)",
+      "rows": 78,
+      "ok": true,
+      "detail": "78 sessions last over 3 hours in total; kept, the model uses robust trees"
+    },
+    {
+      "check": "Sessions with no time recorded",
+      "rows": 720,
+      "ok": true,
+      "detail": "720 sessions have 0 seconds in total (single-page visits); kept"
+    },
+    {
+      "check": "Class balance",
+      "rows": 1908,
+      "ok": true,
+      "detail": "15.5% of sessions are purchases; imbalanced, so splits are stratified and PR-AUC is reported"
+    }
+  ],
+  "errors": []
+}

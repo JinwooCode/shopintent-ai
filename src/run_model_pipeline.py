@@ -201,8 +201,12 @@ def main() -> int:
         f.write("\n".join(report))
 
     # Structured copy of the evaluation, read by the Model Card agent (it never parses the markdown)
+    # 6 decimals: formatting to 3 decimals or 0.1% then matches evaluation_report.md (no double rounding)
+    def _r(d: dict) -> dict:
+        return {k: round(float(v), 6) for k, v in d.items()}
+
     def _seg(table: pd.DataFrame) -> list[dict]:
-        return [{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}
+        return [{k: (round(v, 6) if isinstance(v, float) else v) for k, v in r.items()}
                 for r in table.to_dict("records")]
 
     test = parts["test"].assign(_p=test_main_proba)
@@ -210,17 +214,18 @@ def main() -> int:
     for vt, g in test.groupby("VisitorType"):
         segs = pd.Series([decide_segment(p, thresholds) for p in g["_p"]])
         by_visitor.append({"visitor_type": vt, "sessions": int(len(g)),
-                           "actual_purchase_rate": round(float(g[TARGET].mean()), 4),
-                           "mean_predicted": round(float(g["_p"].mean()), 4),
-                           "share_hesitant": round(float((segs == "hesitant").mean()), 4)})
+                           "actual_purchase_rate": round(float(g[TARGET].mean()), 6),
+                           "mean_predicted": round(float(g["_p"].mean()), 6),
+                           "share_hesitant": round(float((segs == "hesitant").mean()), 6)})
     evaluation = {
-        "target": TARGET, "seed": seed, "baseline_purchase_rate": round(float(feats[TARGET].mean()), 4),
+        "target": TARGET, "seed": seed, "baseline_purchase_rate": round(float(feats[TARGET].mean()), 6),
         "rows": int(len(feats)),
-        "split": {s: {"sessions": int(sizes[s]), "purchase_rate": float(rates[s])} for s in ("train", "val", "test")},
+        "split": {s: {"sessions": int(sizes[s]), "purchase_rate": round(float(parts[s][TARGET].mean()), 6)}
+                  for s in ("train", "val", "test")},
         "selection_metric": "pr_auc",
-        "selection": {a: {k: round(v, 4) for k, v in selection[a].items()} for a in ALGORITHMS},
+        "selection": {a: _r(selection[a]) for a in ALGORITHMS},
         "selected_algorithm": best_algo,
-        "test_metrics": meta["test_metrics"],
+        "test_metrics": {"main": _r(m_main), "comparison": _r(m_cmp)},
         "thresholds": thresholds,
         "threshold_checks": [{"check": n, "ok": ok} for n, ok in checks],
         "val_segments": _seg(val_segments),

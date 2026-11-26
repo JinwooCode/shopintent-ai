@@ -20,6 +20,10 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from html import escape  # noqa: E402
+
+from src.agents.intervention_agent import ACTIONS as ACTIONS_AGENT  # noqa: E402
+from src.agents.intervention_agent import input_from_row, write_message  # noqa: E402
 from src.tools.decision import decide  # noqa: E402
 from src.tools.model_tools import CATEGORICAL, engineer_features  # noqa: E402
 from src.utils import load_config, resolve  # noqa: E402
@@ -173,6 +177,19 @@ div[data-testid="stExpander"] {background: #fff; border-radius: 14px; border: 1p
 .wi-action small {color: #6B7280;}
 .flip {display: inline-block; background: #5B4CF0; color: #fff; font-size: .7rem; font-weight: 700;
        padding: .15rem .5rem; border-radius: 999px; margin-left: .4rem; vertical-align: middle;}
+.msg {border: 1px solid #E6E8F0; border-left: 5px solid var(--a); border-radius: 16px; padding: 1.2rem 1.4rem;
+       background: #fff; max-width: 560px; animation: rise .45s ease-out both; margin: .4rem 0 .6rem;}
+.msg-top {display: flex; align-items: center; gap: .6rem; font-size: 1.3rem;}
+.msg h4 {margin: .6rem 0 .35rem; font-size: 1.2rem; font-weight: 800; color: #111827;}
+.msg p {margin: 0 0 .9rem; color: #374151; line-height: 1.55;}
+.src {font-size: .7rem; font-weight: 700; padding: .2rem .55rem; border-radius: 999px;}
+.src.ok {background: #D1FAE5; color: #047857;} .src.fb {background: #F1F2F7; color: #6B7280;}
+.code {display: inline-block; font-family: ui-monospace, monospace; font-weight: 800; font-size: 1.05rem;
+       letter-spacing: .08em; border: 2px dashed var(--a); color: var(--a); border-radius: 10px;
+       padding: .4rem .8rem; margin: 0 .8rem .9rem 0;}
+.code small {display: block; font-family: 'Inter', sans-serif; font-size: .7rem; letter-spacing: 0; font-weight: 600;}
+.cta {display: inline-block; background: var(--a); color: #fff; font-weight: 700; border-radius: 10px;
+      padding: .55rem 1.1rem; font-size: .92rem;}
 @media (max-width: 640px) {
 .kpis {grid-template-columns: 1fr 1fr;}
 .hero {padding: 1.5rem;} .hero h1 {font-size: 1.9rem;}
@@ -457,6 +474,36 @@ with right:
 &lt; {lo:.0%} unlikely → no action</div>
 </div>
 """)
+
+# --------------------------------------------------------------------------- step 5b: agent message
+if result["intervention"] in ACTIONS_AGENT:
+    html('<div class="label"><em>✍</em>What the visitor would see · written by the intervention agent</div>')
+    agent_key = f"agent_msg_{i}"
+    with st.container(border=True):
+        c1, c2 = st.columns([3, 1])
+        c1.caption("The rule above already decided the action. The agent only writes the wording; the discount "
+                   "and code come from config and are checked before anything is shown.")
+        if c2.button("✍️  Write the message", key=f"btn_{i}", type="primary", width="stretch"):
+            with st.spinner("The agent is writing..."):
+                st.session_state[agent_key] = write_message(input_from_row(i, s, proba, cfg), cfg)
+        m = st.session_state.get(agent_key)
+        if m is not None:
+            accent = "#B45309" if m.intervention == "coupon" else "#4338CA"
+            code = (f'<div class="code">{m.coupon_code}<small>{m.discount_pct}% off · valid {m.valid_hours} h</small></div>'
+                    if m.coupon_code else "")
+            src = (f'<span class="src ok">Agent · {m.model} · {m.seconds:.1f}s · passed the gate</span>'
+                   if m.source == "agent" else '<span class="src fb">Fallback template</span>')
+            html(f"""
+<div class="msg" style="--a:{accent}">
+<div class="msg-top">{'🎟️' if m.intervention == 'coupon' else '💬'} {src}</div>
+<h4>{escape(m.headline)}</h4>
+<p>{escape(m.message)}</p>
+{code}
+<span class="cta">{escape(m.cta)}</span>
+</div>
+""")
+            if m.problems:
+                st.caption("Why the fallback was used: " + "; ".join(p[:140] for p in m.problems))
 
 # --------------------------------------------------------------------------- step 6: what-if lab
 html('<div class="label"><em>6</em>What-if lab · change the visit, watch the decision</div>')

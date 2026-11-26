@@ -1,8 +1,10 @@
 """ShopIntent AI — CrewAI Flow that runs the whole project end to end.
 
-    analyst_stage ──► handoff_gate ──"handoff_ok"──► scientist_stage ──► app_gate ──"ready"──► finish
+    analyst_stage ──► handoff_gate ──"handoff_ok"──► scientist_stage ──► app_gate ──"ready"──►
                            │                                                │
-                           └────────────────"failed"────────────────────────┴──► handle_failure
+    intervention_stage ──► intervention_gate ──"agent_ok"──► finish         │
+                                  │                                         │
+                           ───────┴────────"failed"─────────────────────────┴──► handle_failure
 
 Stages:
   analyst_stage    Data Analyst work: raw CSV -> clean_data.csv + dataset_contract.json
@@ -10,12 +12,18 @@ Stages:
   scientist_stage  Data Scientist work: features, model selection, models, evaluation report
   app_gate         confirms the Streamlit app can use the artifacts (files exist, model loads and scores,
                    main model excludes PageValues)
+  intervention_stage  the intervention agent writes one coupon and one chat message for hesitant test
+                      visits (src/agents/intervention_agent.py). It acts only after the rule has decided.
+  intervention_gate   the agent contract holds: messages pass the output gate, buyer/unlikely visits and
+                      inputs that contradict the rule are refused, bad drafts are caught, fallback works.
+                      If the LLM is unavailable the fallback is used and recorded; that is not a failure.
 
-This first version runs the deterministic Python pipelines. The agent crews are added later in the same
-stages. Every run writes a summary to logs/flow_last_run.json. On failure the process exits with code 1.
+The analyst and scientist stages run the deterministic Python pipelines; their crews are added later.
+Every run writes a summary to logs/flow_last_run.json. On failure the process exits with code 1.
 
 Usage (from the project root):
     python -m src.flow
+    python -m src.flow --no-llm    # no API calls: the agent stage uses the fallback templates
     python -m src.flow --plot      # also open an interactive diagram of the flow in the browser
 """
 from __future__ import annotations
@@ -36,6 +44,8 @@ from crewai.flow.flow import Flow, listen, router, start
 from pydantic import BaseModel, Field
 
 from src import run_data_pipeline, run_model_pipeline
+from src.agents.intervention_agent import (ACTIONS, AgentDraft, AgentInputError, fallback_draft,
+                                           input_from_row, validate_message, write_message)
 from src.tools.data_tools import DataValidationError, load_contract, validate_against_contract
 from src.tools.decision import decide
 from src.tools.model_tools import CATEGORICAL, check_required_features, engineer_features
@@ -61,9 +71,11 @@ class ShopIntentState(BaseModel):
     failed_step: str | None = None
     steps: list[StepResult] = Field(default_factory=list)
     test_metrics: dict = Field(default_factory=dict)
+    agent_sources: dict = Field(default_factory=dict)   # coupon/chat -> "agent" | "fallback"
 
 
 class ShopIntentFlow(Flow[ShopIntentState]):
+    use_llm: bool = True   # False (--no-llm): the agent stage uses the fallback only, no API calls
 
     # ------------------------------------------------------------------ helpers
     def _record(self, name: str, ok: bool, t0: float, details: list[str] | None = None) -> bool:
@@ -182,8 +194,114 @@ class ShopIntentFlow(Flow[ShopIntentState]):
         self._record("app_gate", True, t0, passed)
         return "ready"
 
-    # ------------------------------------------------------------------ endings
+    # ------------------------------------------------------------------ 3. Intervention agent
     @listen("ready")
+    def intervention_stage(self):
+        """Run the agent on one coupon visit and one chat visit from the test set."""
+        log.info("[flow] ===== Stage 3: Intervention agent (%s) =====",
+                 "LLM" if self.use_llm else "LLM off, fallback only")
+        t0 = time.perf_counter()
+        cfg = load_config()
+        sci_dir = resolve(cfg["paths"]["scientist_dir"])
+        try:
+            model = joblib.load(sci_dir / "model.pkl")
+            feats = pd.read_csv(sci_dir / "features.csv")
+            for col in CATEGORICAL:
+                feats[col] = feats[col].astype(str)
+            test = feats[feats["split"] == "test"].reset_index(drop=True)
+            proba = model.predict_proba(test)[:, 1]
+            self._agent_cases = {}   # first test visit the rule sends to coupon, and to chat
+            for i, p in enumerate(proba):
+                action = decide(p, test.at[i, "VisitorType"], cfg)["intervention"]
+                if action in ACTIONS and action not in self._agent_cases:
+                    self._agent_cases[action] = input_from_row(i, test.loc[i], p, cfg)
+            todo = [a for a in ACTIONS if a in self._agent_cases]
+            self._agent_outputs = [write_message(self._agent_cases[a], cfg, use_llm=self.use_llm) for a in todo]
+        except Exception as e:
+            log.exception("Intervention stage crashed")
+            return self._record("intervention_stage", False, t0, [f"{type(e).__name__}: {e}"])
+        details = [f"{m.intervention}: source={m.source}" + (f" ({'; '.join(m.problems)})" if m.problems else "")
+                   for m in self._agent_outputs]
+        return self._record("intervention_stage", len(self._agent_outputs) == len(ACTIONS), t0,
+                            details or ["No hesitant coupon/chat visits found in the test set"])
+
+    @router(intervention_stage, emit=["agent_ok", "failed"])
+    def intervention_gate(self, stage_ok: bool):
+        """The agent contract holds: it acts only after the rule, every shown message passes the gate,
+        bad drafts are caught, and the fallback works."""
+        if not stage_ok:
+            return "failed"
+        log.info("[flow] ===== Intervention agent validation =====")
+        t0 = time.perf_counter()
+        cfg = load_config()
+        problems, passed = [], []
+        try:
+            # 1. Every message the app would show passes the output gate
+            for m in self._agent_outputs:
+                code = m.coupon_code
+                errs = validate_message(AgentDraft(headline=m.headline, message=m.message, cta=m.cta),
+                                        m.intervention, cfg, code)
+                if errs:
+                    problems.append(f"{m.intervention} message fails the gate: {errs}")
+                elif m.intervention == "coupon" and m.discount_pct != cfg["intervention_agent"]["coupon"]["discount_pct"]:
+                    problems.append("Coupon discount differs from config")
+                else:
+                    passed.append(f"{m.intervention} message ({m.source}) passes the output gate")
+
+            # 2. The agent refuses visits the rule did not send to it
+            base = next(iter(self._agent_cases.values()))
+            for p, label in ((min(0.99, cfg["thresholds"]["buyer_from"] + 0.1), "buyer"),
+                             (max(0.0, cfg["thresholds"]["unlikely_below"] - 0.1), "unlikely")):
+                bad = base.model_copy(update={"probability": p})
+                try:
+                    write_message(bad, cfg, use_llm=False)
+                    problems.append(f"Agent accepted a {label} visit")
+                except AgentInputError:
+                    passed.append(f"Agent refuses {label} visits")
+            wrong = base.model_copy(update={"intervention": "chat" if base.intervention == "coupon" else "coupon"})
+            try:
+                write_message(wrong, cfg, use_llm=False)
+                problems.append("Agent accepted an input that contradicts the rule")
+            except AgentInputError:
+                passed.append("Agent refuses input that contradicts the rule")
+
+            # 3. The gate catches bad drafts
+            pct = cfg["intervention_agent"]["coupon"]["discount_pct"]
+            bad_coupon = AgentDraft(headline="Big sale", message=f"Take {pct + 15}% off now!", cta="Shop")
+            bad_chat = AgentDraft(headline="Hi", message="Use code WELCOME for 20% off", cta="Chat")
+            if validate_message(bad_coupon, "coupon", cfg, "SHOP10-TEST") and \
+                    validate_message(bad_chat, "chat", cfg, None):
+                passed.append("Gate rejects a wrong discount and a discount inside a chat")
+            else:
+                problems.append("Gate let a bad draft through")
+
+            # 4. The fallback is valid for both actions
+            for a in ACTIONS:
+                code = "SHOP10-TEST" if a == "coupon" else None
+                if validate_message(fallback_draft(a, cfg, code), a, cfg, code):
+                    problems.append(f"Fallback template for {a} fails the gate")
+            passed.append("Fallback templates pass the gate")
+
+            out = resolve(cfg["paths"]["agents_dir"]) / "intervention_samples.json"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps([m.model_dump() for m in self._agent_outputs], indent=2,
+                                      ensure_ascii=False) + "\n", encoding="utf-8")
+            self.state.agent_sources = {m.intervention: m.source for m in self._agent_outputs}
+        except Exception as e:
+            problems.append(f"{type(e).__name__}: {e}")
+
+        if problems:
+            for p in problems:
+                log.error("  FAIL  %s", p)
+            self._record("intervention_gate", False, t0, problems)
+            return "failed"
+        for p in passed:
+            log.info("  OK  %s", p)
+        self._record("intervention_gate", True, t0, passed)
+        return "agent_ok"
+
+    # ------------------------------------------------------------------ endings
+    @listen("agent_ok")
     def finish(self):
         self.state.status = "success"
         self._write_summary()
@@ -211,6 +329,7 @@ class ShopIntentFlow(Flow[ShopIntentState]):
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     flow = ShopIntentFlow()
+    flow.use_llm = "--no-llm" not in argv
     if "--plot" in argv:
         path = flow.plot("shopintent_flow.html", show=True)  # CrewAI writes it to a temp folder
         log.info("[flow] Flow diagram opened in the browser (%s)", path)

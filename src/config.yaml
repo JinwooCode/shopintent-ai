@@ -7,6 +7,7 @@ paths:
   raw_data: data/raw/online_shoppers_intention.csv
   analyst_dir: artifacts/analyst
   scientist_dir: artifacts/scientist
+  agents_dir: artifacts/agents
   log_dir: logs
 
 target: Revenue
@@ -15,7 +16,9 @@ target: Revenue
 # Switching provider = change these two lines + the matching key in .env.
 llm:
   provider: openai
-  model: ""   # chosen when the crews are wired up (a small, cheap model)
+  model: gpt-4.1-mini   # small and cheap; structured output works reliably
+  timeout_seconds: 30
+  temperature: 0.4
 
 split:
   test_size: 0.15
@@ -43,3 +46,27 @@ interventions:
     Returning_Visitor: coupon
     New_Visitor: chat
     Other: none
+
+# Intervention agent: runs only AFTER the rule above has decided coupon / chat.
+# It writes the wording; it never changes the decision, the discount or the coupon code.
+intervention_agent:
+  enabled: true
+  store_name: ShopIntent Store
+  coupon:
+    discount_pct: 10        # fixed here, the agent may not change it
+    code_prefix: SHOP10
+    valid_hours: 48
+  limits:                   # checked by the validation gate
+    headline_max_chars: 60
+    message_max_chars: 320
+    cta_max_chars: 30
+  # Used when the agent fails (no key, API error, timeout, or output that fails the gate)
+  fallback:
+    coupon:
+      headline: "A little something for coming back"
+      message: "Welcome back! Here is {discount}% off your order today with code {code}. Valid for the next {hours} hours."
+      cta: "Apply my coupon"
+    chat:
+      headline: "Need a hand?"
+      message: "Hi! First time at {store}? I'm here if you have any questions about products, sizes, shipping or returns."
+      cta: "Start a chat"

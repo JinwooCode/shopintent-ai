@@ -6,7 +6,7 @@ A **CrewAI Flow** coordinates two agent crews:
 
 | Crew | Role | Outputs (`artifacts/`) |
 |---|---|---|
-| **Data Analyst** | Ingest, validate, clean, EDA, business insights, dataset contract | `clean_data.csv`, `eda_report.html`, `insights.md`, `dataset_contract.json` |
+| **Data Analyst** (agents: Data Validator, Contract Author, Insights Analyst) | Ingest, validate, clean, EDA, business insights, dataset contract | `clean_data.csv`, `eda_report.html`, `insights.md`, `dataset_contract.json` (+ `data_quality.md`, `dataset_contract.md`) |
 | **Data Scientist** | Validate contract, feature engineering, train & compare models, model card | `features.csv`, `model.pkl`, `evaluation_report.md`, `model_card.md` |
 
 A **Streamlit app** runs a *visit simulation*: it scores a completed session from the dataset and shows the purchase probability, the segment, and the recommended intervention.
@@ -64,6 +64,7 @@ streamlit run app/streamlit_app.py  # visit simulation at http://localhost:8501
 
 ```
 analyst_stage ──► validator_stage ──► validator_gate ──data_ok──►
+contract_stage ──► contract_gate ──contract_ok──►
 insights_stage ──► insights_gate ──insights_ok──►
 handoff_gate ──handoff_ok──► scientist_stage ──► app_gate ──ready──►
 intervention_stage ──► intervention_gate ──agent_ok──► finish
@@ -76,6 +77,8 @@ every gate can return "failed" ──► handle_failure
 | `analyst_stage` | Raw CSV → `clean_data.csv` + `dataset_contract.json` + `data_quality.json` |
 | `validator_stage` | Data Validator agent explains `data_quality.json` in `data_quality.md` (also when the pipeline failed) |
 | `validator_gate` | The tools say the data is ready; the report's verdict matches the tools, explains every cleaning action and invents no numbers |
+| `contract_stage` | Contract Author agent documents every column → `column_docs` in `dataset_contract.json` + `dataset_contract.md` |
+| `contract_gate` | The machine-checked part of the contract is unchanged and still matches the data; every column is documented correctly |
 | `insights_stage` | EDA tool → `eda_stats.json` + `eda_report.html`; Insights Analyst agent → `insights.md` |
 | `insights_gate` | All analyst outputs exist; every number in `insights.md` is traced to the EDA facts; PageValues stays out; the fallback is valid |
 | `handoff_gate` | Checks that the contract matches the clean data and that all required model features exist |
@@ -101,6 +104,17 @@ Python computes every number (`src/tools/eda_tools.py`); the agent only interpre
 | **Check** | Every number the agent writes must appear in the facts (no invented or derived numbers), every finding cites a number, lengths and counts, no PageValues. Runs as a CrewAI guardrail (one retry with feedback) and again after the run. |
 | **On failure** | Deterministic insights built from the same facts, marked as fallback with the reason. |
 | **Reproducibility** | The agent draft is saved in `insights.json` with a hash of the stats. While the stats are unchanged it is re-checked and reused without an LLM call. `--refresh-agents` asks the agent again. |
+
+### The Contract Author agent (Data Analyst crew)
+
+The schema, ranges, allowed values, assumptions and constraints are built by code and enforced by the validation tools. The agent only documents each column (`src/agents/contract_agent.py`).
+
+| | |
+|---|---|
+| **Input** | One fact line per column (type, range or allowed values, role) plus the dataset's documented meaning of the column. |
+| **Output** | A summary and, for every column, what it means and how the Data Scientist crew should use it. Added to `dataset_contract.json` as `column_docs` and rendered to `dataset_contract.md`. |
+| **Check** | Exactly one doc per contract column; category-code columns described as categories; PageValues described as excluded; the target described as the target; numbers traced to the facts. The gate also confirms that the machine-checked part of the contract did not change. |
+| **On failure** | Docs built from the dataset's source notes, marked as fallback. |
 
 ### The Data Validator agent (Data Analyst crew)
 

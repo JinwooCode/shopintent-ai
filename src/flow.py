@@ -1,6 +1,7 @@
 """ShopIntent AI — CrewAI Flow that runs the whole project end to end.
 
     analyst_stage ──► validator_stage ──► validator_gate ──"data_ok"──►
+    contract_stage ──► contract_gate ──"contract_ok"──►
     insights_stage ──► insights_gate ──"insights_ok"──►
     handoff_gate ──"handoff_ok"──► scientist_stage ──► app_gate ──"ready"──►
     intervention_stage ──► intervention_gate ──"agent_ok"──► finish
@@ -13,6 +14,11 @@ Stages:
                    pipeline failed, so the failure is explained); src/agents/validator_agent.py
   validator_gate   the tools say the data is ready; the report's verdict matches the tools, explains every
                    cleaning action and invents no numbers; the agent cannot overrule the verdict
+  contract_stage   Contract Author agent documents every column (meaning, how to use) -> column_docs in
+                   dataset_contract.json + dataset_contract.md; src/agents/contract_agent.py
+  contract_gate    the machine-checked part of the contract is unchanged by the agent and still matches the
+                   data; every column is documented; code columns, PageValues and the target are described
+                   correctly; the gate catches a missing column; the fallback is valid
   insights_stage   EDA tool -> eda_stats.json + eda_report.html; Insights Analyst agent -> insights.md
                    (src/agents/insights_agent.py; reuses a saved agent draft when the stats are unchanged)
   insights_gate    all analyst outputs exist; every number in insights.md is traced to the EDA facts;
@@ -54,6 +60,12 @@ from crewai.flow.flow import Flow, listen, router, start
 from pydantic import BaseModel, Field
 
 from src import run_data_pipeline, run_model_pipeline
+from src.agents.common import sha_of
+from src.agents.contract_agent import fallback_docs as contract_fallback
+from src.agents.contract_agent import machine_part as contract_machine_part
+from src.agents.contract_agent import make_input as contract_input
+from src.agents.contract_agent import save as save_contract_docs
+from src.agents.contract_agent import validate_docs, write_contract_docs
 from src.agents.validator_agent import fallback_draft as quality_fallback
 from src.agents.validator_agent import make_input as validator_input
 from src.agents.validator_agent import save as save_quality
@@ -72,7 +84,7 @@ from src.utils import get_logger, load_config, resolve
 log = get_logger("flow")
 
 ANALYST_OUTPUTS = ["clean_data.csv", "dataset_contract.json", "data_quality.json", "data_quality.md",
-                   "data_quality_report.json",
+                   "data_quality_report.json", "contract_docs.json", "dataset_contract.md",
                    "eda_stats.json", "eda_report.html", "insights.md", "insights.json"]
 SCIENTIST_OUTPUTS = ["features.csv", "model.pkl", "model_with_pagevalues.pkl",
                      "model_meta.json", "evaluation_report.md"]
@@ -195,11 +207,83 @@ class ShopIntentFlow(Flow[ShopIntentState]):
         self._record("validator_gate", True, t0, passed)
         return "data_ok"
 
-    # ------------------------------------------------------------------ 1b. EDA + Insights Analyst agent
+    # ------------------------------------------------------------------ 1b. Contract Author agent
     @listen("data_ok")
+    def contract_stage(self, *_):
+        """The agent documents every column; the docs are added to dataset_contract.json + dataset_contract.md."""
+        log.info("[flow] ===== Stage 1b: Contract Author agent (%s) =====",
+                 "LLM" if self.use_llm else "LLM off, fallback only")
+        t0 = time.perf_counter()
+        cfg = load_config()
+        a_dir = resolve(cfg["paths"]["analyst_dir"])
+        try:
+            contract = load_contract(a_dir / "dataset_contract.json")
+            self._contract_sha_before = sha_of(contract_machine_part(contract))
+            self._contract_docs = write_contract_docs(contract, cfg, use_llm=self.use_llm,
+                                                      refresh=self.refresh_agents)
+            save_contract_docs(self._contract_docs, contract, cfg)
+        except Exception as e:
+            log.exception("Contract stage crashed")
+            return self._record("contract_stage", False, t0, [f"{type(e).__name__}: {e}"])
+        r = self._contract_docs
+        detail = f"column docs: source={r.source}" + (" (reused, no LLM call)" if r.reused else "") + \
+                 (f" ({'; '.join(r.problems)})" if r.problems else "")
+        return self._record("contract_stage", True, t0, [detail])
+
+    @router(contract_stage, emit=["contract_ok", "failed"])
+    def contract_gate(self, stage_ok: bool):
+        """The agent only added documentation: the machine part is unchanged and still matches the data."""
+        if not stage_ok:
+            return "failed"
+        log.info("[flow] ===== Contract validation =====")
+        t0 = time.perf_counter()
+        cfg = load_config()
+        a_dir = resolve(cfg["paths"]["analyst_dir"])
+        problems, passed = [], []
+        try:
+            contract = load_contract(a_dir / "dataset_contract.json")
+            inp = contract_input(contract)
+            if sha_of(contract_machine_part(contract)) != self._contract_sha_before:
+                problems.append("The machine-checked part of the contract changed during the agent stage")
+            else:
+                passed.append("Machine-checked part of the contract unchanged by the agent")
+            validate_against_contract(pd.read_csv(a_dir / "clean_data.csv"), contract)
+            passed.append("Clean data still matches the documented contract")
+            docs = self._contract_docs.docs
+            errs = validate_docs(docs, inp)
+            if errs or set(contract.get("column_docs", {})) != set(inp.columns):
+                problems += [f"Column docs fail the gate: {e}" for e in errs] or ["column_docs incomplete in the json"]
+            else:
+                passed.append(f"Every one of the {len(inp.columns)} columns documented ({self._contract_docs.source})")
+            broken = docs.model_copy(update={"columns": docs.columns[1:]})
+            if validate_docs(broken, inp):
+                passed.append("Gate rejects docs with a missing column")
+            else:
+                problems.append("Gate let docs with a missing column through")
+            if validate_docs(contract_fallback(contract), inp):
+                problems.append("Fallback column docs fail the gate")
+            else:
+                passed.append("Fallback docs pass the gate")
+            self.state.agent_sources["contract_docs"] = self._contract_docs.source
+        except DataValidationError as e:
+            problems += e.errors
+        except Exception as e:
+            problems.append(f"{type(e).__name__}: {e}")
+        if problems:
+            for p in problems:
+                log.error("  FAIL  %s", p)
+            self._record("contract_gate", False, t0, problems)
+            return "failed"
+        for p in passed:
+            log.info("  OK  %s", p)
+        self._record("contract_gate", True, t0, passed)
+        return "contract_ok"
+
+    # ------------------------------------------------------------------ 1c. EDA + Insights Analyst agent
+    @listen("contract_ok")
     def insights_stage(self, *_):
         """EDA tool (Python) -> eda_stats.json + eda_report.html, then the agent -> insights.md."""
-        log.info("[flow] ===== Stage 1b: EDA + Insights Analyst agent (%s) =====",
+        log.info("[flow] ===== Stage 1c: EDA + Insights Analyst agent (%s) =====",
                  "LLM" if self.use_llm else "LLM off, fallback only")
         t0 = time.perf_counter()
         cfg = load_config()

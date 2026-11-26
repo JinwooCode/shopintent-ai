@@ -3,7 +3,8 @@
     analyst_stage ──► validator_stage ──► validator_gate ──"data_ok"──►
     contract_stage ──► contract_gate ──"contract_ok"──►
     insights_stage ──► insights_gate ──"insights_ok"──►
-    handoff_gate ──"handoff_ok"──► scientist_stage ──► model_card_stage ──► model_card_gate ──"card_ok"──►
+    handoff_gate ──"handoff_ok"──► scientist_stage ──► evaluator_stage ──► evaluator_gate ──"eval_ok"──►
+    model_card_stage ──► model_card_gate ──"card_ok"──►
     app_gate ──"ready"──►
     intervention_stage ──► intervention_gate ──"agent_ok"──► finish
 
@@ -26,6 +27,11 @@ Stages:
                    PageValues stays out; the gate catches an invented number; the fallback is valid
   handoff_gate     validates the handoff: the contract matches the clean data and all required features exist
   scientist_stage  Data Scientist work: features, model selection, models, evaluation report + evaluation.json
+  evaluator_stage  Model Evaluator agent explains evaluation.json -> evaluation_interpretation.md
+                   (src/agents/evaluator_agent.py)
+  evaluator_gate   a fixed rule recommends keeping the main model (threshold checks pass, PR-AUC >= 2x the
+                   random baseline); the agent's recommendation and algorithm match the code; it never claims
+                   the thresholds were tuned; numbers traced; fallback valid
   model_card_stage Model Card agent writes purpose, uses, training data, metrics summary, limitations and
                    ethics from evaluation.json -> model_card.md (tables by code); src/agents/model_card_agent.py
   model_card_gate  all brief sections present; the main model's PR-AUC is quoted (never the PageValues model's);
@@ -71,6 +77,10 @@ from src.agents.contract_agent import machine_part as contract_machine_part
 from src.agents.contract_agent import make_input as contract_input
 from src.agents.contract_agent import save as save_contract_docs
 from src.agents.contract_agent import validate_docs, write_contract_docs
+from src.agents.evaluator_agent import fallback_draft as evaluator_fallback
+from src.agents.evaluator_agent import make_input as evaluator_input
+from src.agents.evaluator_agent import save as save_interpretation
+from src.agents.evaluator_agent import validate_evaluation, write_interpretation
 from src.agents.model_card_agent import fallback_draft as model_card_fallback
 from src.agents.model_card_agent import make_input as model_card_input
 from src.agents.model_card_agent import save as save_model_card
@@ -398,13 +408,80 @@ class ShopIntentFlow(Flow[ShopIntentState]):
         details = missing or [f"exit code {rc}"]
         return self._record("scientist_stage", rc == 0 and not missing, t0, details)
 
-    # ------------------------------------------------------------------ 2a. Model Card agent
+    # ------------------------------------------------------------------ 2a. Model Evaluator agent
     @listen(scientist_stage)
-    def model_card_stage(self, scientist_ok: bool):
-        """The agent writes the judgement sections of model_card.md from evaluation.json."""
+    def evaluator_stage(self, scientist_ok: bool):
+        """The agent explains evaluation.json in evaluation_interpretation.md."""
         if not scientist_ok:
             return False
-        log.info("[flow] ===== Stage 2a: Model Card agent (%s) =====",
+        log.info("[flow] ===== Stage 2a: Model Evaluator agent (%s) =====",
+                 "LLM" if self.use_llm else "LLM off, fallback only")
+        t0 = time.perf_counter()
+        cfg = load_config()
+        s_dir = resolve(cfg["paths"]["scientist_dir"])
+        (s_dir / "evaluation_interpretation.md").unlink(missing_ok=True)
+        try:
+            self._evaluation = json.loads((s_dir / "evaluation.json").read_text(encoding="utf-8"))
+            self._interpretation = write_interpretation(self._evaluation, cfg, use_llm=self.use_llm,
+                                                        refresh=self.refresh_agents)
+            save_interpretation(self._interpretation, cfg)
+        except Exception as e:
+            log.exception("Evaluator stage crashed")
+            return self._record("evaluator_stage", False, t0, [f"{type(e).__name__}: {e}"])
+        r = self._interpretation
+        detail = f"evaluation_interpretation.md: source={r.source}, recommendation={r.draft.recommendation}" + \
+                 (" (reused, no LLM call)" if r.reused else "") + (f" ({'; '.join(r.problems)})" if r.problems else "")
+        return self._record("evaluator_stage", True, t0, [detail])
+
+    @router(evaluator_stage, emit=["eval_ok", "failed"])
+    def evaluator_gate(self, stage_ok: bool):
+        """The rule recommends keeping the main model and the interpretation keeps to its contract."""
+        if not stage_ok:
+            return "failed"
+        log.info("[flow] ===== Evaluation interpretation validation =====")
+        t0 = time.perf_counter()
+        problems, passed = [], []
+        try:
+            inp = evaluator_input(self._evaluation)
+            d = self._interpretation.draft
+            if inp.expected_recommendation != "keep_main_model":
+                problems.append("The recommendation rule says 'investigate': a threshold check failed or the main "
+                                "model is not at least twice the random baseline. See evaluation_interpretation.md")
+            errs = validate_evaluation(d, inp)
+            if errs:
+                problems += [f"evaluation_interpretation.md fails the gate: {e}" for e in errs]
+            else:
+                passed.append(f"evaluation_interpretation.md ({self._interpretation.source}): recommendation and "
+                              f"algorithm match the code, every number traced")
+            flipped = d.model_copy(update={"recommendation": "investigate" if d.recommendation == "keep_main_model"
+                                           else "keep_main_model"})
+            tuned = d.model_copy(update={"thresholds_and_segments": "The thresholds were tuned on test data."})
+            if validate_evaluation(flipped, inp) and validate_evaluation(tuned, inp):
+                passed.append("Gate rejects an overruled recommendation and a claim that thresholds were tuned")
+            else:
+                problems.append("Gate let an overruled recommendation or a 'tuned thresholds' claim through")
+            if validate_evaluation(evaluator_fallback(self._evaluation), inp):
+                problems.append("Fallback interpretation fails the gate")
+            else:
+                passed.append("Fallback interpretation passes the gate")
+            self.state.agent_sources["evaluation"] = self._interpretation.source
+        except Exception as e:
+            problems.append(f"{type(e).__name__}: {e}")
+        if problems:
+            for p in problems:
+                log.error("  FAIL  %s", p)
+            self._record("evaluator_gate", False, t0, problems)
+            return "failed"
+        for p in passed:
+            log.info("  OK  %s", p)
+        self._record("evaluator_gate", True, t0, passed)
+        return "eval_ok"
+
+    # ------------------------------------------------------------------ 2b. Model Card agent
+    @listen("eval_ok")
+    def model_card_stage(self, *_):
+        """The agent writes the judgement sections of model_card.md from evaluation.json."""
+        log.info("[flow] ===== Stage 2b: Model Card agent (%s) =====",
                  "LLM" if self.use_llm else "LLM off, fallback only")
         t0 = time.perf_counter()
         cfg = load_config()

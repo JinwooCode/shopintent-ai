@@ -1,58 +1,58 @@
 {
   "target": "Revenue",
   "seed": 42,
-  "baseline_purchase_rate": 0.1547,
+  "baseline_purchase_rate": 0.154745,
   "rows": 12330,
   "split": {
     "train": {
       "sessions": 8630,
-      "purchase_rate": 0.1548
+      "purchase_rate": 0.154809
     },
     "val": {
       "sessions": 1850,
-      "purchase_rate": 0.1546
+      "purchase_rate": 0.154595
     },
     "test": {
       "sessions": 1850,
-      "purchase_rate": 0.1546
+      "purchase_rate": 0.154595
     }
   },
   "selection_metric": "pr_auc",
   "selection": {
     "logistic_regression": {
-      "roc_auc": 0.7637,
-      "pr_auc": 0.3215,
-      "brier": 0.1167,
-      "precision@0.5": 0.4444,
-      "recall@0.5": 0.028,
-      "f1@0.5": 0.0526
+      "roc_auc": 0.763698,
+      "pr_auc": 0.321455,
+      "brier": 0.116665,
+      "precision@0.5": 0.444444,
+      "recall@0.5": 0.027972,
+      "f1@0.5": 0.052632
     },
     "gradient_boosting": {
-      "roc_auc": 0.7734,
+      "roc_auc": 0.773369,
       "pr_auc": 0.3464,
-      "brier": 0.1156,
-      "precision@0.5": 0.4576,
-      "recall@0.5": 0.0944,
-      "f1@0.5": 0.1565
+      "brier": 0.115645,
+      "precision@0.5": 0.457627,
+      "recall@0.5": 0.094406,
+      "f1@0.5": 0.156522
     }
   },
   "selected_algorithm": "gradient_boosting",
   "test_metrics": {
     "main": {
-      "roc_auc": 0.7776,
-      "pr_auc": 0.3686,
-      "brier": 0.1138,
-      "precision@0.5": 0.493,
-      "recall@0.5": 0.1224,
-      "f1@0.5": 0.1961
+      "roc_auc": 0.777648,
+      "pr_auc": 0.368556,
+      "brier": 0.113848,
+      "precision@0.5": 0.492958,
+      "recall@0.5": 0.122378,
+      "f1@0.5": 0.196078
     },
     "comparison": {
-      "roc_auc": 0.9348,
-      "pr_auc": 0.7533,
-      "brier": 0.0694,
-      "precision@0.5": 0.7191,
-      "recall@0.5": 0.5909,
-      "f1@0.5": 0.6488
+      "roc_auc": 0.934794,
+      "pr_auc": 0.75329,
+      "brier": 0.069403,
+      "precision@0.5": 0.719149,
+      "recall@0.5": 0.590909,
+      "f1@0.5": 0.648752
     }
   },
   "thresholds": {
@@ -81,69 +81,69 @@
     {
       "segment": "buyer",
       "sessions": 59,
-      "share": 0.0319,
-      "actual_purchase_rate": 0.4576,
-      "mean_predicted": 0.5758
+      "share": 0.031892,
+      "actual_purchase_rate": 0.457627,
+      "mean_predicted": 0.575782
     },
     {
       "segment": "hesitant",
       "sessions": 481,
       "share": 0.26,
-      "actual_purchase_rate": 0.3181,
-      "mean_predicted": 0.3123
+      "actual_purchase_rate": 0.318087,
+      "mean_predicted": 0.312318
     },
     {
       "segment": "unlikely",
       "sessions": 1310,
-      "share": 0.7081,
-      "actual_purchase_rate": 0.0809,
-      "mean_predicted": 0.0742
+      "share": 0.708108,
+      "actual_purchase_rate": 0.080916,
+      "mean_predicted": 0.074224
     }
   ],
   "test_segments": [
     {
       "segment": "buyer",
       "sessions": 71,
-      "share": 0.0384,
-      "actual_purchase_rate": 0.493,
-      "mean_predicted": 0.5804
+      "share": 0.038378,
+      "actual_purchase_rate": 0.492958,
+      "mean_predicted": 0.580433
     },
     {
       "segment": "hesitant",
       "sessions": 511,
-      "share": 0.2762,
-      "actual_purchase_rate": 0.2779,
-      "mean_predicted": 0.2984
+      "share": 0.276216,
+      "actual_purchase_rate": 0.277886,
+      "mean_predicted": 0.298434
     },
     {
       "segment": "unlikely",
       "sessions": 1268,
-      "share": 0.6854,
-      "actual_purchase_rate": 0.086,
-      "mean_predicted": 0.0728
+      "share": 0.685405,
+      "actual_purchase_rate": 0.085962,
+      "mean_predicted": 0.07282
     }
   ],
   "test_by_visitor_type": [
     {
       "visitor_type": "New_Visitor",
       "sessions": 265,
-      "actual_purchase_rate": 0.2604,
-      "mean_predicted": 0.2359,
-      "share_hesitant": 0.4679
+      "actual_purchase_rate": 0.260377,
+      "mean_predicted": 0.235851,
+      "share_hesitant": 0.467925
     },
     {
       "visitor_type": "Other",
       "sessions": 11,
-      "actual_purchase_rate": 0.2727,
-      "mean_predicted": 0.2502,
-      "share_hesitant": 0.3636
+      "actual_purchase_rate": 0.272727,
+      "mean_predicted": 0.25025,
+      "share_hesitant": 0.363636
     },
     {
       "visitor_type": "Returning_Visitor",
       "sessions": 1574,
-      "actual_purchase_rate": 0.136,
-      "mean_predicted": 0.1403,
-      "share_hesitant": 0.2433
+      "actual_purchase_rate": 0.135959,
+      "mean_predicted": 0.140275,
+      "share_hesitant": 0.243329
     }
   ],
   "main_features": [

@@ -1,13 +1,19 @@
 """ShopIntent AI — CrewAI Flow that runs the whole project end to end.
 
-    analyst_stage ──► handoff_gate ──"handoff_ok"──► scientist_stage ──► app_gate ──"ready"──►
-                           │                                                │
-    intervention_stage ──► intervention_gate ──"agent_ok"──► finish         │
-                                  │                                         │
-                           ───────┴────────"failed"─────────────────────────┴──► handle_failure
+    analyst_stage ──► insights_stage ──► insights_gate ──"insights_ok"──►
+                                              │
+    handoff_gate ──"handoff_ok"──► scientist_stage ──► app_gate ──"ready"──►
+         │                                               │
+    intervention_stage ──► intervention_gate ──"agent_ok"──► finish
+                                  │                      │
+    ──────────────────────────────┴──────"failed"────────┴──► handle_failure   (any gate can fail)
 
 Stages:
   analyst_stage    Data Analyst work: raw CSV -> clean_data.csv + dataset_contract.json
+  insights_stage   EDA tool -> eda_stats.json + eda_report.html; Insights Analyst agent -> insights.md
+                   (src/agents/insights_agent.py; reuses a saved agent draft when the stats are unchanged)
+  insights_gate    all analyst outputs exist; every number in insights.md is traced to the EDA facts;
+                   PageValues stays out; the gate catches an invented number; the fallback is valid
   handoff_gate     validates the handoff: the contract matches the clean data and all required features exist
   scientist_stage  Data Scientist work: features, model selection, models, evaluation report
   app_gate         confirms the Streamlit app can use the artifacts (files exist, model loads and scores,
@@ -23,7 +29,8 @@ Every run writes a summary to logs/flow_last_run.json. On failure the process ex
 
 Usage (from the project root):
     python -m src.flow
-    python -m src.flow --no-llm    # no API calls: the agent stage uses the fallback templates
+    python -m src.flow --no-llm    # no API calls: agents reuse a saved draft or use their fallback
+    python -m src.flow --refresh-insights   # ask the insights agent again even if the stats are unchanged
     python -m src.flow --plot      # also open an interactive diagram of the flow in the browser
 """
 from __future__ import annotations
@@ -44,6 +51,10 @@ from crewai.flow.flow import Flow, listen, router, start
 from pydantic import BaseModel, Field
 
 from src import run_data_pipeline, run_model_pipeline
+from src.agents.insights_agent import fallback_draft as insights_fallback
+from src.agents.insights_agent import save as save_insights
+from src.agents.insights_agent import validate_insights, write_insights
+from src.tools.eda_tools import build_eda_report, compute_eda_stats, save_stats, stats_to_facts
 from src.agents.intervention_agent import (ACTIONS, AgentDraft, AgentInputError, fallback_draft,
                                            input_from_row, validate_message, write_message)
 from src.tools.data_tools import DataValidationError, load_contract, validate_against_contract
@@ -53,7 +64,8 @@ from src.utils import get_logger, load_config, resolve
 
 log = get_logger("flow")
 
-ANALYST_OUTPUTS = ["clean_data.csv", "dataset_contract.json"]
+ANALYST_OUTPUTS = ["clean_data.csv", "dataset_contract.json", "eda_stats.json", "eda_report.html",
+                   "insights.md", "insights.json"]
 SCIENTIST_OUTPUTS = ["features.csv", "model.pkl", "model_with_pagevalues.pkl",
                      "model_meta.json", "evaluation_report.md"]
 
@@ -75,7 +87,8 @@ class ShopIntentState(BaseModel):
 
 
 class ShopIntentFlow(Flow[ShopIntentState]):
-    use_llm: bool = True   # False (--no-llm): the agent stage uses the fallback only, no API calls
+    use_llm: bool = True            # False (--no-llm): agents use their fallback only, no API calls
+    refresh_insights: bool = False  # True (--refresh-insights): call the insights agent even if a draft exists
 
     # ------------------------------------------------------------------ helpers
     def _record(self, name: str, ok: bool, t0: float, details: list[str] | None = None) -> bool:
@@ -101,15 +114,86 @@ class ShopIntentFlow(Flow[ShopIntentState]):
         except Exception as e:  # unexpected crash -> still fail gracefully
             log.exception("Data pipeline crashed")
             return self._record("analyst_stage", False, t0, [f"{type(e).__name__}: {e}"])
-        missing = self._missing("analyst_dir", ANALYST_OUTPUTS)
+        missing = self._missing("analyst_dir", ANALYST_OUTPUTS[:2])
         details = missing or [f"exit code {rc}"]
         return self._record("analyst_stage", rc == 0 and not missing, t0, details)
 
-    # ------------------------------------------------------------------ handoff validation
-    @router(analyst_stage, emit=["handoff_ok", "failed"])
-    def handoff_gate(self, analyst_ok: bool):
+    # ------------------------------------------------------------------ 1b. EDA + Insights Analyst agent
+    @listen(analyst_stage)
+    def insights_stage(self, analyst_ok: bool):
+        """EDA tool (Python) -> eda_stats.json + eda_report.html, then the agent -> insights.md."""
         if not analyst_ok:
+            return False
+        log.info("[flow] ===== Stage 1b: EDA + Insights Analyst agent (%s) =====",
+                 "LLM" if self.use_llm else "LLM off, fallback only")
+        t0 = time.perf_counter()
+        cfg = load_config()
+        a_dir = resolve(cfg["paths"]["analyst_dir"])
+        try:
+            df = pd.read_csv(a_dir / "clean_data.csv")
+            self._eda_stats = compute_eda_stats(df)
+            save_stats(self._eda_stats, a_dir / "eda_stats.json")
+            build_eda_report(self._eda_stats, load_contract(a_dir / "dataset_contract.json"),
+                             a_dir / "eda_report.html")
+            self._insights = write_insights(self._eda_stats, cfg, use_llm=self.use_llm,
+                                            refresh=self.refresh_insights)
+            save_insights(self._insights, cfg)
+        except Exception as e:
+            log.exception("Insights stage crashed")
+            return self._record("insights_stage", False, t0, [f"{type(e).__name__}: {e}"])
+        r = self._insights
+        detail = f"insights: source={r.source}" + (" (reused, no LLM call)" if r.reused else "") + \
+                 (f" ({'; '.join(r.problems)})" if r.problems else "")
+        return self._record("insights_stage", True, t0, ["eda_report.html and eda_stats.json written", detail])
+
+    @router(insights_stage, emit=["insights_ok", "failed"])
+    def insights_gate(self, stage_ok: bool):
+        """The analyst outputs are complete and the insights keep to their contract."""
+        if not stage_ok:
             return "failed"
+        log.info("[flow] ===== Insights validation =====")
+        t0 = time.perf_counter()
+        cfg = load_config()
+        problems, passed = self._missing("analyst_dir", ANALYST_OUTPUTS), []
+        try:
+            facts = stats_to_facts(self._eda_stats)
+            errs = validate_insights(self._insights.draft, facts)
+            if errs:
+                problems += [f"insights.md fails the gate: {e}" for e in errs]
+            else:
+                passed.append(f"insights.md ({self._insights.source}): {len(self._insights.draft.insights)} "
+                              f"insights, every number traced to the EDA facts")
+            if any("pagevalues" in f.lower() for f in facts):
+                problems.append("PageValues leaked into the facts given to the agent")
+            else:
+                passed.append("PageValues is not in the agent's facts")
+            # the gate must catch an invented number and the fallback must be valid
+            bad = self._insights.draft.model_copy(deep=True)
+            bad.insights[0].finding += " The rate was 99.9%."
+            if validate_insights(bad, facts):
+                passed.append("Gate rejects an invented number")
+            else:
+                problems.append("Gate let an invented number through")
+            if validate_insights(insights_fallback(self._eda_stats), facts):
+                problems.append("Fallback insights fail the gate")
+            else:
+                passed.append("Fallback insights pass the gate")
+            self.state.agent_sources["insights"] = self._insights.source
+        except Exception as e:
+            problems.append(f"{type(e).__name__}: {e}")
+        if problems:
+            for p in problems:
+                log.error("  FAIL  %s", p)
+            self._record("insights_gate", False, t0, problems)
+            return "failed"
+        for p in passed:
+            log.info("  OK  %s", p)
+        self._record("insights_gate", True, t0, passed)
+        return "insights_ok"
+
+    # ------------------------------------------------------------------ handoff validation
+    @router("insights_ok", emit=["handoff_ok", "failed"])
+    def handoff_gate(self, *_):
         log.info("[flow] ===== Handoff validation: Data Analyst -> Data Scientist =====")
         t0 = time.perf_counter()
         cfg = load_config()
@@ -330,6 +414,7 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     flow = ShopIntentFlow()
     flow.use_llm = "--no-llm" not in argv
+    flow.refresh_insights = "--refresh-insights" in argv
     if "--plot" in argv:
         path = flow.plot("shopintent_flow.html", show=True)  # CrewAI writes it to a temp folder
         log.info("[flow] Flow diagram opened in the browser (%s)", path)

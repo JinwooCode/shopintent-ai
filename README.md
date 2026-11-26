@@ -63,16 +63,18 @@ streamlit run app/streamlit_app.py  # visit simulation at http://localhost:8501
 ### The flow
 
 ```
-analyst_stage ──► handoff_gate ──handoff_ok──► scientist_stage ──► app_gate ──ready──►
-                       │                                              │
-intervention_stage ──► intervention_gate ──agent_ok──► finish         │
-                              │                                       │
-                       ───────┴───────────failed──────────────────────┴──► handle_failure
+analyst_stage ──► insights_stage ──► insights_gate ──insights_ok──►
+handoff_gate ──handoff_ok──► scientist_stage ──► app_gate ──ready──►
+intervention_stage ──► intervention_gate ──agent_ok──► finish
+
+every gate can return "failed" ──► handle_failure
 ```
 
 | Step | What it does |
 |---|---|
 | `analyst_stage` | Raw CSV → `clean_data.csv` + `dataset_contract.json` |
+| `insights_stage` | EDA tool → `eda_stats.json` + `eda_report.html`; Insights Analyst agent → `insights.md` |
+| `insights_gate` | All analyst outputs exist; every number in `insights.md` is traced to the EDA facts; PageValues stays out; the fallback is valid |
 | `handoff_gate` | Checks that the contract matches the clean data and that all required model features exist |
 | `scientist_stage` | Features, model selection, main + comparison models, `evaluation_report.md` |
 | `app_gate` | Checks that the app can use the artifacts: the model loads and scores sessions end to end, and the main model excludes `PageValues` |
@@ -83,7 +85,19 @@ If any check fails, the flow stops at that step, skips the later stages, logs th
 Each run writes a summary to `logs/flow_last_run.json` and a full log to `logs/pipeline.log`.
 All steps are deterministic (seed in `src/config.yaml`), so rerunning reproduces the artifacts byte for byte.
 
-`python -m src.flow --no-llm` runs everything without API calls (the agent stage uses the fallback templates).
+`python -m src.flow --no-llm` runs everything without API calls (agents reuse a saved draft or use their fallback).
+
+### The Insights Analyst agent (Data Analyst crew)
+
+Python computes every number (`src/tools/eda_tools.py`); the agent only interprets them (`src/agents/insights_agent.py`).
+
+| | |
+|---|---|
+| **Input** | The plain-language EDA facts (purchase rate by month, visitor type, weekend, holidays, traffic source; buyer vs non-buyer medians; correlations). PageValues is never included. |
+| **Output** | Summary, 4–6 insights (title, finding with evidence, business action), caveats. Code renders them to `insights.md`. |
+| **Check** | Every number the agent writes must appear in the facts (no invented or derived numbers), every finding cites a number, lengths and counts, no PageValues. Runs as a CrewAI guardrail (one retry with feedback) and again after the run. |
+| **On failure** | Deterministic insights built from the same facts, marked as fallback with the reason. |
+| **Reproducibility** | The agent draft is saved in `insights.json` with a hash of the stats. While the stats are unchanged it is re-checked and reused without an LLM call. `--refresh-insights` asks the agent again. |
 
 ### The intervention agent
 

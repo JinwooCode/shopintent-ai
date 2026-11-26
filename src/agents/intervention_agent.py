@@ -32,6 +32,7 @@ os.environ.setdefault("CREWAI_TRACING_ENABLED", "false")
 from dotenv import load_dotenv  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
+from src.agents.common import make_llm  # noqa: E402
 from src.tools.decision import HESITANT, decide  # noqa: E402
 from src.utils import get_logger, load_config, resolve  # noqa: E402
 
@@ -179,11 +180,10 @@ def _task_text(inp: InterventionInput, cfg: dict, code: str | None) -> str:
 
 
 def _run_crew(inp: InterventionInput, cfg: dict, code: str | None) -> AgentDraft:
-    from crewai import LLM, Agent, Crew, Process, Task
+    from crewai import Agent, Crew, Process, Task
 
     llm_cfg = cfg["llm"]
-    llm = LLM(model=f"{llm_cfg['provider']}/{llm_cfg['model']}", temperature=llm_cfg.get("temperature", 0.4),
-              timeout=llm_cfg.get("timeout_seconds", 30), max_retries=1)
+    llm = make_llm(cfg)
     agent = Agent(
         role="Customer engagement copywriter",
         goal="Write one short, honest message that helps an undecided shopper finish their visit",

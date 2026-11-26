@@ -1,0 +1,246 @@
+{
+  "dataset": {
+    "sessions": 12330,
+    "buyers": 1908,
+    "purchase_rate": 0.1547,
+    "columns": 18
+  },
+  "by_month": [
+    {
+      "group": "Feb",
+      "sessions": 184,
+      "buyers": 3,
+      "rate": 0.0163
+    },
+    {
+      "group": "Mar",
+      "sessions": 1907,
+      "buyers": 192,
+      "rate": 0.1007
+    },
+    {
+      "group": "May",
+      "sessions": 3364,
+      "buyers": 365,
+      "rate": 0.1085
+    },
+    {
+      "group": "Jun",
+      "sessions": 288,
+      "buyers": 29,
+      "rate": 0.1007
+    },
+    {
+      "group": "Jul",
+      "sessions": 432,
+      "buyers": 66,
+      "rate": 0.1528
+    },
+    {
+      "group": "Aug",
+      "sessions": 433,
+      "buyers": 76,
+      "rate": 0.1755
+    },
+    {
+      "group": "Sep",
+      "sessions": 448,
+      "buyers": 86,
+      "rate": 0.192
+    },
+    {
+      "group": "Oct",
+      "sessions": 549,
+      "buyers": 115,
+      "rate": 0.2095
+    },
+    {
+      "group": "Nov",
+      "sessions": 2998,
+      "buyers": 760,
+      "rate": 0.2535
+    },
+    {
+      "group": "Dec",
+      "sessions": 1727,
+      "buyers": 216,
+      "rate": 0.1251
+    }
+  ],
+  "by_visitor_type": [
+    {
+      "group": "Returning visitors",
+      "sessions": 10551,
+      "buyers": 1470,
+      "rate": 0.1393
+    },
+    {
+      "group": "New visitors",
+      "sessions": 1694,
+      "buyers": 422,
+      "rate": 0.2491
+    },
+    {
+      "group": "Other visitors",
+      "sessions": 85,
+      "buyers": 16,
+      "rate": 0.1882
+    }
+  ],
+  "by_weekend": [
+    {
+      "group": "Weekday",
+      "sessions": 9462,
+      "buyers": 1409,
+      "rate": 0.1489
+    },
+    {
+      "group": "Weekend",
+      "sessions": 2868,
+      "buyers": 499,
+      "rate": 0.174
+    }
+  ],
+  "by_special_day": [
+    {
+      "group": "Not close to a holiday",
+      "sessions": 11079,
+      "buyers": 1831,
+      "rate": 0.1653
+    },
+    {
+      "group": "Close to a holiday",
+      "sessions": 1251,
+      "buyers": 77,
+      "rate": 0.0616
+    }
+  ],
+  "top_traffic_sources": [
+    {
+      "group": "Traffic source 2",
+      "sessions": 3913,
+      "buyers": 847,
+      "rate": 0.2165
+    },
+    {
+      "group": "Traffic source 1",
+      "sessions": 2451,
+      "buyers": 262,
+      "rate": 0.1069
+    },
+    {
+      "group": "Traffic source 3",
+      "sessions": 2052,
+      "buyers": 180,
+      "rate": 0.0877
+    },
+    {
+      "group": "Traffic source 4",
+      "sessions": 1069,
+      "buyers": 165,
+      "rate": 0.1543
+    },
+    {
+      "group": "Traffic source 13",
+      "sessions": 738,
+      "buyers": 43,
+      "rate": 0.0583
+    }
+  ],
+  "buyer_vs_non_buyer": [
+    {
+      "feature": "ProductRelated",
+      "label": "Product pages viewed",
+      "unit": "pages",
+      "buyer_median": 29.0,
+      "non_buyer_median": 16.0
+    },
+    {
+      "feature": "ProductRelated_Duration",
+      "label": "Time on product pages",
+      "unit": "min",
+      "buyer_median": 18.5,
+      "non_buyer_median": 8.5
+    },
+    {
+      "feature": "Administrative",
+      "label": "Account & admin pages viewed",
+      "unit": "pages",
+      "buyer_median": 2.0,
+      "non_buyer_median": 0.0
+    },
+    {
+      "feature": "Informational",
+      "label": "Information pages viewed",
+      "unit": "pages",
+      "buyer_median": 0.0,
+      "non_buyer_median": 0.0
+    },
+    {
+      "feature": "BounceRates",
+      "label": "Bounce rate of pages viewed",
+      "unit": "%",
+      "buyer_median": 0.0,
+      "non_buyer_median": 0.4
+    },
+    {
+      "feature": "ExitRates",
+      "label": "Exit rate of pages viewed",
+      "unit": "%",
+      "buyer_median": 1.6,
+      "non_buyer_median": 2.9
+    }
+  ],
+  "correlation_with_revenue": [
+    {
+      "feature": "PageValues",
+      "r": 0.493,
+      "leaky": true
+    },
+    {
+      "feature": "ExitRates",
+      "r": -0.207,
+      "leaky": false
+    },
+    {
+      "feature": "ProductRelated",
+      "r": 0.159,
+      "leaky": false
+    },
+    {
+      "feature": "ProductRelated_Duration",
+      "r": 0.152,
+      "leaky": false
+    },
+    {
+      "feature": "BounceRates",
+      "r": -0.151,
+      "leaky": false
+    },
+    {
+      "feature": "Administrative",
+      "r": 0.139,
+      "leaky": false
+    },
+    {
+      "feature": "Informational",
+      "r": 0.095,
+      "leaky": false
+    },
+    {
+      "feature": "Administrative_Duration",
+      "r": 0.094,
+      "leaky": false
+    },
+    {
+      "feature": "SpecialDay",
+      "r": -0.082,
+      "leaky": false
+    },
+    {
+      "feature": "Informational_Duration",
+      "r": 0.07,
+      "leaky": false
+    }
+  ]
+}
